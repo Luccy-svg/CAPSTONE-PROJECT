@@ -1,13 +1,13 @@
 # Suppress warnings and logs for clean Streamlit output
 import warnings
-warnings.filterwarnings("ignore")  # general warnings
+warnings.filterwarnings("ignore")  
 warnings.filterwarnings("ignore", category=UserWarning, module="tensorflow")
 
 import os
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Hide TensorFlow INFO/WARNING/ERROR logs
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  # Optional: suppress oneDNN info
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  
 
-
+# Core libraries
 import streamlit as st
 import numpy as np
 import pandas as pd
