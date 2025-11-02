@@ -2,8 +2,8 @@
 # cnn_pipeline.py
 
 import numpy as np
-from tensorflow.keras.models import load_model
 import joblib
+from tensorflow.keras.models import load_model
 from PIL import Image
 
 class WaferCNNPipeline:
@@ -11,11 +11,12 @@ class WaferCNNPipeline:
     A simple CNN pipeline that handles image preprocessing and prediction.
     """
 
-    def __init__(self, model_path: str, label_encoder_path: str, image_size=(26, 26)):
+    def __init__(self, model_path: str, label_encoder_path: str, image_size=(32, 32)):
         """
         Initialize pipeline with model and label encoder.
         """
-        self.model = load_model(model_path)
+        # Load model in inference mode (ignore missing custom loss)
+        self.model = load_model(model_path, compile=False)
         self.le = joblib.load(label_encoder_path)
         self.image_size = image_size
 
