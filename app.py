@@ -50,6 +50,16 @@ def load_rf_model():
     model = joblib.load(MODEL_PATH)
     return model
 
+
+
+# CNN model load
+CNN_MODEL_PATH = "cnn_model.h5"
+if not os.path.exists(CNN_MODEL_PATH):
+    gdrive_url = "https://drive.google.com/uc?id=1cUp_ZBRcz2Eu6Q76X3HeogGzrTW_4KxM"
+    gdown.download(gdrive_url, CNN_MODEL_PATH, quiet=False)
+
+cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, "label_encoder.pkl")
+
 # Load models and utilities
 rf = load_rf_model()
 xgb = joblib.load("xgboost_improved.pkl")
