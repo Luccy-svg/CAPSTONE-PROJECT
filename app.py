@@ -17,7 +17,7 @@ import gdown
 import tensorflow as tf
 import seaborn as sns
 import matplotlib.pyplot as plt
-from tensorflow.keras.models import load_model  
+from tensorflow.keras.models import load_model   # pyright: ignore[reportMissingImports]
 from PIL import Image
 from sklearn.metrics import confusion_matrix, classification_report
 from cnn_pipeline import WaferCNNPipeline
