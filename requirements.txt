@@ -13,3 +13,12 @@ keras==3.5.0
 opencv-python==4.10.0.84
 imbalanced-learn==0.12.3
 python-dotenv
+streamlit==1.40.1
+tensorflow==2.17.0
+numpy==1.26.4
+pillow==10.4.0
+h5py==3.11.0
+rich==14.2.0
+markdown-it-py==4.0.0
+pygments==2.19.2
+mdurl==0.1.2
