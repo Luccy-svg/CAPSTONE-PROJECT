@@ -30,6 +30,10 @@ st.title("Semiconductor Wafer Defect Detection Dashboard")
 st.sidebar.header("Model Selection")
 st.toast("Models loaded successfully! Ready to classify wafers")
 
+st.write("Files in working directory:", os.listdir())
+st.write("Random Forest exists:", os.path.exists("random_forest_improved.pkl"))
+st.write("CNN exists:", os.path.exists("cnn_model.h5"))
+
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
 
 
