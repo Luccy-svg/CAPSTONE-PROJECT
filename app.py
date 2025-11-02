@@ -57,7 +57,7 @@ def load_rf_model():
 
 
 # CNN model load
-CNN_MODEL_PATH = "cnn_model.h5"
+model = load_model("cnn_model_tf2")
 if not os.path.exists(CNN_MODEL_PATH):
     gdrive_url = "https://drive.google.com/file/d/1W8GeaGuwZoQMLttlabVfpl0aWrFR4syH"
     gdown.download(gdrive_url, CNN_MODEL_PATH, quiet=False)
