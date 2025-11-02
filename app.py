@@ -2,15 +2,19 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
+import os
+import gdown
 import tensorflow as tf
 import seaborn as sns
 import matplotlib.pyplot as plt
-from tensorflow.keras.models import load_model
+from tensorflow.keras.models import load_model  
 from PIL import Image
 from sklearn.metrics import confusion_matrix, classification_report
 from cnn_pipeline import WaferCNNPipeline
 
-# CONFIG 
+
+# CONFIGURATION
+
 st.set_page_config(page_title="Wafer Defect Classifier", layout="wide")
 st.title("Semiconductor Wafer Defect Detection Dashboard")
 st.sidebar.header("Model Selection")
@@ -18,23 +22,45 @@ st.toast("Models loaded successfully! Ready to classify wafers")
 
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
 
-# LOAD MODELS 
-rf = joblib.load("random_forest_improved.pkl")
+
+# LOAD MODELS (RF, XGB, CNN, etc.)
+
+
+# Paths and model setup
+MODEL_PATH = "random_forest_improved.pkl"
+DRIVE_FILE_ID = "1T6Ox-zPpgW5npnN7Cl1m7uskLUyZCEw5"
+
+# Safe custom loader for Random Forest
+def load_rf_model():
+    """Download and load Random Forest model if not found locally."""
+    if not os.path.exists(MODEL_PATH):
+        with st.spinner("Downloading Random Forest model from Google Drive..."):
+            url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
+            gdown.download(url, MODEL_PATH, quiet=False)
+    model = joblib.load(MODEL_PATH)
+    return model
+
+# Load models and utilities
+rf = load_rf_model()
 xgb = joblib.load("xgboost_improved.pkl")
 scaler = joblib.load("scaler.pkl")
 le = joblib.load("label_encoder.pkl")
 cnn_pipe = WaferCNNPipeline("cnn_model.h5", "label_encoder.pkl")
 
-#  1: PREDICTION 
+
+# TAB 1: PREDICTION
+
 with tabs[0]:
     st.header("Choose Model Type for Prediction")
 
     model_choice = st.radio(
         "Select model type:",
-        ["Refined Random Forest (Feature-Based)", "CNN (Image-Based)"]
+        ["Improved Random Forest (Feature-Based)", "CNN (Image-Based)"]
     )
 
-    # Feature-Based Prediction (RF/XGB) 
+    
+    # FEATURE-BASED MODELS (RF / XGB)
+    
     if model_choice == "Improved Random Forest (Feature-Based)":
         st.subheader("Upload CSV for Feature-Based Prediction")
 
@@ -56,7 +82,9 @@ with tabs[0]:
             st.success(f"Prediction complete using {selected_model}!")
             st.dataframe(df[["Predicted Defect"]])
 
-    # Image-Based Prediction (CNN)
+    # -----------------------------------------------------------------
+    # IMAGE-BASED MODEL (CNN)
+    # -----------------------------------------------------------------
     else:
         st.subheader("Upload Wafer Map Images for CNN Prediction")
         uploaded_files = st.file_uploader(
@@ -98,8 +126,11 @@ with tabs[0]:
 
             # Show images + probability bars
             for r, uploaded_file in zip(results, uploaded_files):
-                wafer = np.load(uploaded_file) if uploaded_file.name.endswith(".npy") else np.array(
-                    Image.open(uploaded_file).convert("L").resize((26, 26))) / 255.0
+                wafer = (
+                    np.load(uploaded_file)
+                    if uploaded_file.name.endswith(".npy")
+                    else np.array(Image.open(uploaded_file).convert("L").resize((26, 26))) / 255.0
+                )
 
                 fig, ax = plt.subplots(1, 2, figsize=(8, 3))
                 ax[0].imshow(wafer, cmap="gray")
@@ -115,7 +146,9 @@ with tabs[0]:
         else:
             st.info("Upload wafer map images to start predictions.")
 
-# TAB 2: INSIGHTS 
+
+# TAB 2: MODEL INSIGHTS
+
 with tabs[1]:
     st.header("Model Insights")
     model_choice = st.selectbox("Select Model to View Insights", ["Random Forest", "XGBoost", "CNN"])
@@ -154,18 +187,20 @@ with tabs[1]:
             st.pyplot(plt)
 
     elif model_choice == "CNN":
-        st.write("CNN learns directly from wafer image patterns rather than numerical features.")
+        st.write("🧩 CNN learns directly from wafer image patterns rather than numerical features.")
         st.image("cnn_filters_example.png", caption="Example learned CNN filters", use_container_width=True)
 
-# TAB 3: ABOUT WAFER DEFECTS
+
+# TAB 3: ABOUT PROJECT
+
 with tabs[2]:
     st.header("About This Project")
     st.markdown("""
     This project detects **semiconductor wafer defects** using:
     - **CNN** for image-based wafer maps  
-    - **Random Forest** and  **XGBoost** for feature-based wafer data  
+    - **Random Forest** and **XGBoost** for feature-based wafer data  
     - **SMOTE** for synthetic balancing of minority defect classes  
-    - **Streamlit** for a seamless, interactive deployment  
+    - **Streamlit** for an interactive dashboard deployment  
 
     **Goal:** Automate defect detection and enhance wafer yield prediction.
     """)
