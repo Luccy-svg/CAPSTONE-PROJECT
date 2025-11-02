@@ -59,7 +59,7 @@ def load_rf_model():
 # CNN model load
 CNN_MODEL_PATH = "cnn_model.h5"
 if not os.path.exists(CNN_MODEL_PATH):
-    gdrive_url = "https://drive.google.com/uc?id=1cUp_ZBRcz2Eu6Q76X3HeogGzrTW_4KxM"
+    gdrive_url = "https://drive.google.com/file/d/1W8GeaGuwZoQMLttlabVfpl0aWrFR4syH"
     gdown.download(gdrive_url, CNN_MODEL_PATH, quiet=False)
 
 cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, "label_encoder.pkl")
@@ -106,9 +106,9 @@ with tabs[0]:
             st.success(f"Prediction complete using {selected_model}!")
             st.dataframe(df[["Predicted Defect"]])
 
-    # -----------------------------------------------------------------
+    
     # IMAGE-BASED MODEL (CNN)
-    # -----------------------------------------------------------------
+    
     else:
         st.subheader("Upload Wafer Map Images for CNN Prediction")
         uploaded_files = st.file_uploader(
