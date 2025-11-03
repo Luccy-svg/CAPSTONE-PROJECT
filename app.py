@@ -1,66 +1,61 @@
-# Suppress warnings and logs
+# -------------------- SUPPRESS WARNINGS -------------------- #
 import warnings
-warnings.filterwarnings("ignore")  
-warnings.filterwarnings("ignore", category=UserWarning, module="tensorflow")
-
+warnings.filterwarnings("ignore")
 import os
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 
-# Core libraries
+# -------------------- IMPORT LIBRARIES -------------------- #
 import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
-from tensorflow.keras.models import load_model
 from PIL import Image
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, classification_report
 from cnn_pipeline import WaferCNNPipeline
 
-# -------------------- CONFIGURATION -------------------- #
+# -------------------- STREAMLIT CONFIG -------------------- #
 st.set_page_config(page_title="Wafer Defect Classifier", layout="wide")
 st.title("Semiconductor Wafer Defect Detection Dashboard")
 st.sidebar.header("Model Selection")
-st.toast("Models loaded successfully! Ready to classify wafers")
 
 # -------------------- FILE CHECKS -------------------- #
 st.write("Files in working directory:", os.listdir())
-st.write("CNN exists:", os.path.exists("cnn_model.keras"))
-
-tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
+CNN_MODEL_PATH = "cnn_model.keras"
+st.write("CNN exists:", os.path.exists(CNN_MODEL_PATH))
 
 # -------------------- LOAD MODELS -------------------- #
-
-# XGBoost + Utilities
+# XGBoost + utilities
 xgb = joblib.load("xgboost_improved.pkl")
 scaler = joblib.load("scaler.pkl")
 le = joblib.load("label_encoder.pkl")
 
-# CNN model (from Git repo)
-CNN_MODEL_PATH = "cnn_model.keras"  # Already in repo
-if not os.path.exists(CNN_MODEL_PATH):
-    st.error(f"Model file not found: {CNN_MODEL_PATH}. Please check your repository.")
-else:
+# CNN pipeline
+if os.path.exists(CNN_MODEL_PATH):
     cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, "label_encoder.pkl")
+else:
+    st.error(f"Model file not found: {CNN_MODEL_PATH}")
+    cnn_pipe = None
+
+# -------------------- TABS -------------------- #
+tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
 
 # -------------------- TAB 1: PREDICTION -------------------- #
 with tabs[0]:
     st.header("Choose Model Type for Prediction")
-
     model_choice = st.radio(
         "Select model type:",
         ["XGBoost (Feature-Based)", "CNN (Image-Based)"]
     )
 
-    # ---------------- FEATURE-BASED (XGBoost) ---------------- #
+    # ---------- XGBoost Prediction ----------
     if model_choice == "XGBoost (Feature-Based)":
         st.subheader("Upload CSV for Feature-Based Prediction")
         uploaded_csv = st.file_uploader("Upload wafer features (.csv)", type=["csv"])
-
         if uploaded_csv is not None:
             df = pd.read_csv(uploaded_csv)
             st.dataframe(df.head(), use_container_width=True)
@@ -73,7 +68,7 @@ with tabs[0]:
             st.success("Prediction complete using XGBoost!")
             st.dataframe(df[["Predicted Defect"]])
 
-    # ---------------- IMAGE-BASED (CNN) ---------------- #
+    # ---------- CNN Prediction ----------
     else:
         st.subheader("Upload Wafer Map Images for CNN Prediction")
         uploaded_files = st.file_uploader(
@@ -86,33 +81,22 @@ with tabs[0]:
             results = []
 
             for uploaded_file in uploaded_files:
-                # ---------------- Preprocessing ---------------- #
+                # Use pipeline to get label + probabilities
                 if uploaded_file.name.endswith(".npy"):
                     wafer = np.load(uploaded_file)
                 else:
-                    img = Image.open(uploaded_file).convert("L").resize((32, 32))
-                    wafer = np.array(img) / 255.0  # normalize to [0,1]
+                    wafer = Image.open(uploaded_file).convert("L")
 
-                wafer_input = wafer.reshape(1, 32, 32, 1)
-
-                # ---------------- Prediction ---------------- #
-                preds = cnn_pipe.model.predict(wafer_input, verbose=0)
-                pred_class = np.argmax(preds, axis=1)
-                label = cnn_pipe.le.inverse_transform(pred_class)[0]
-                probs = preds[0]
-
+                label, probs = cnn_pipe.predict(wafer)
                 results.append({
                     "File": uploaded_file.name,
                     "Predicted_Label": label,
                     "Probabilities": dict(zip(cnn_pipe.le.classes_, probs))
                 })
 
-            # ---------------- Display Results ---------------- #
+            # Display results
             st.subheader("Prediction Results")
-            df_results = pd.DataFrame([{
-                "File": r["File"],
-                "Predicted_Label": r["Predicted_Label"]
-            } for r in results])
+            df_results = pd.DataFrame([{"File": r["File"], "Predicted_Label": r["Predicted_Label"]} for r in results])
             st.dataframe(df_results, use_container_width=True)
 
             # Show images + probability bars
@@ -120,8 +104,7 @@ with tabs[0]:
                 if uploaded_file.name.endswith(".npy"):
                     wafer = np.load(uploaded_file)
                 else:
-                    img = Image.open(uploaded_file).convert("L").resize((32, 32))
-                    wafer = np.array(img) / 255.0
+                    wafer = Image.open(uploaded_file).convert("L")
 
                 fig, ax = plt.subplots(1, 2, figsize=(8, 3))
                 ax[0].imshow(wafer, cmap="gray")
@@ -133,7 +116,7 @@ with tabs[0]:
                 st.pyplot(fig)
                 plt.close(fig)
 
-            st.balloons()
+            st.success("Predictions complete!")
         else:
             st.info("Upload wafer map images to start predictions.")
 
@@ -163,7 +146,8 @@ with tabs[1]:
 
     elif model_choice == "CNN":
         st.write("🧩 CNN learns directly from wafer image patterns rather than numerical features.")
-        st.image("cnn_filters_example.png", caption="Example learned CNN filters", use_container_width=True)
+        if os.path.exists("cnn_filters_example.png"):
+            st.image("cnn_filters_example.png", caption="Example learned CNN filters", use_container_width=True)
 
 # -------------------- TAB 3: ABOUT PROJECT -------------------- #
 with tabs[2]:
