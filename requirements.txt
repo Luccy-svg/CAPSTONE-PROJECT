@@ -10,7 +10,7 @@ joblib
 dill
 
 # Deep Learning
-tensorflow==2.14.0
+tensorflow==2.20.0
 keras
 
 # Image processing
