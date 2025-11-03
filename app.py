@@ -6,6 +6,9 @@ warnings.filterwarnings("ignore", category=UserWarning, module="tensorflow")
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  
 
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
+
 # Core libraries
 import streamlit as st
 import numpy as np
