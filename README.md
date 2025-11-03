@@ -26,3 +26,67 @@ Leveraging machine learning and computer vision, these systems can detect defect
 ## 1.2 Problem Statement
 
 Manufacturers need an efficient and automated method to identify and classify wafer defects early in the production process. Manual inspection systems fail to scale with high-volume production and cannot accurately identify subtle, complex defect patterns. Therefore, the goal is to develop a machine learning-based image analysis model capable of automatically detecting and classifying defect patterns in wafer maps therefore improving yield, reducing inspection time, and minimizing production losses.
+
+## 1.3 Business Objective
+
+The primary business objective is to enhance production efficiency and quality assurance in semiconductor manufacturing by automating defect detection. The system will:
+
+Identify wafer defect types using image-based pattern recognition.
+
+Support process engineers in diagnosing the root cause of production faults.
+
+Reduce manual inspection time and related operational costs.
+
+Improve yield rate and product reliability.
+
+Ultimately, the project aims to demonstrate how AI-based defect detection can improve decision-making, reduce downtime, and ensure data-driven manufacturing optimization.
+
+## 1.4 Project Goal
+
+To build and deploy a deep learning-based image classification model capable of identifying common wafer defect patterns (e.g., center, edge-ring, scratch, random) using the WM811K dataset. The model’s predictions will be integrated into an interactive Streamlit dashboard, allowing users to:
+
+Upload wafer map images,
+
+View real-time defect classification and confidence levels,
+
+Visualize feature importance or activation maps (Grad-CAM) for interpretability.
+
+## 1.5 Expected Business Impact
+
+Operational Efficiency: Faster and more accurate defect detection compared to manual methods.
+
+Cost Reduction: Reduced labor costs and fewer defective chips reaching final testing.
+
+Quality Improvement: Early detection minimizes yield loss and improves product reliability.
+
+Decision Support: Data-driven insights for process optimization and predictive maintenance.
+
+Scalability: System can be integrated into production pipelines and scaled to new wafer types.
+
+## 1.6 Success Metrics
+
+Accuracy / F1 Score of classification model
+
+Reduction in defect inspection time by .
+
+Improved detection of rare defect patterns (using confusion matrix or recall metrics).
+
+Usability feedback from engineers or end-users on the Streamlit dashboard prototype.
+
+# 2. Data Understanding
+
+## 2.1 Data Source
+
+The dataset used for this project is the WM811K Wafer Map Dataset, originally released by Taiwan Semiconductor Manufacturing Company (TSMC) and publicly available on sources such as Kaggle and UCI Machine Learning Repository. We downloaded the data from a public dataset, Multimedia Information Retrieval (MIR) lab (http://mirlab.org/dataset/public/).
+
+It consists of wafer map images and corresponding defect labels, representing real-world yield management data collected during semiconductor fabrication processes.
+
+Data-Name: WM811K (Wafer Map Defect Dataset).
+
+Records: 811,457 wafer samples.
+
+Features: Image-based (waferMap) + metadata (dieSize,failureType,lotName,trainTestLabel,waferIndex).
+
+Task Type: Image classification.
+
+Data Format: Pickled or structured array (NumPy, .pkl), and optionally .png images after transformation.
