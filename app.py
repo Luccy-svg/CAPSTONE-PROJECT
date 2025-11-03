@@ -16,6 +16,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
+import gdown
 from PIL import Image
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -28,22 +29,24 @@ st.title("Semiconductor Wafer Defect Detection Dashboard")
 st.sidebar.header("Model Selection")
 
 # -------------------- FILE CHECKS -------------------- #
-st.write("Files in working directory:", os.listdir())
 CNN_MODEL_PATH = "cnn_model.keras"
+LABEL_ENCODER_PATH = "label_encoder.pkl"
+
+st.write("Files in working directory:", os.listdir())
 st.write("CNN exists:", os.path.exists(CNN_MODEL_PATH))
 
-# -------------------- LOAD MODELS -------------------- #
-# XGBoost + utilities
-xgb = joblib.load("xgboost_improved.pkl")
-scaler = joblib.load("scaler.pkl")
-le = joblib.load("label_encoder.pkl")
-
-# CNN pipeline
+# -------------------- LOAD CNN MODEL -------------------- #
 if os.path.exists(CNN_MODEL_PATH):
-    cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, "label_encoder.pkl")
+    st.success("CNN model is present.")
+    cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH)
 else:
     st.error(f"Model file not found: {CNN_MODEL_PATH}")
     cnn_pipe = None
+
+# -------------------- LOAD XGBOOST AND UTILITIES -------------------- #
+xgb = joblib.load("xgboost_improved.pkl")
+scaler = joblib.load("scaler.pkl")
+le = joblib.load("label_encoder.pkl")
 
 # -------------------- TABS -------------------- #
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
@@ -130,29 +133,56 @@ with tabs[1]:
     model_choice = st.selectbox("Select Model to View Insights", ["XGBoost", "CNN"])
 
     if model_choice == "XGBoost":
+        st.subheader("XGBoost Insights")
+
         try:
-            y_test_pred = joblib.load("xgboost_y_test_pred.pkl")
-            y_test_true = joblib.load("y_test.pkl")
-        except FileNotFoundError:
-            st.warning("Missing test data files. Add y_test.pkl and xgboost_y_test_pred.pkl for insights.")
-            st.stop()
+            # Use the same test set you used for training
+            # If not loaded, user can upload CSV of test features
+            uploaded_csv = st.file_uploader(
+                "Upload CSV of test features (.csv) for XGBoost insights",
+                type=["csv"]
+            )
 
-        st.subheader("Confusion Matrix")
-        cm = confusion_matrix(y_test_true, y_test_pred)
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                    xticklabels=le.classes_, yticklabels=le.classes_)
-        st.pyplot(plt)
+            if uploaded_csv is not None:
+                df_test = pd.read_csv(uploaded_csv)
+                st.write("Test features preview:", df_test.head())
 
-        st.subheader("Classification Report")
-        report = classification_report(y_test_true, y_test_pred, target_names=le.classes_, output_dict=True)
-        st.dataframe(pd.DataFrame(report).transpose())
+                X_test_scaled = scaler.transform(df_test.values)
+                y_test_pred = xgb.predict(X_test_scaled)
+                decoded_pred = le.inverse_transform(y_test_pred)
+
+                st.subheader("Predictions Overview")
+                st.dataframe(pd.DataFrame({"Predicted": decoded_pred}), use_container_width=True)
+
+                st.subheader("Confusion Matrix")
+                st.write("Upload corresponding true labels as a CSV with one column 'true_label'")
+                uploaded_labels = st.file_uploader("Upload true labels CSV", type=["csv"], key="ytest")
+                if uploaded_labels:
+                    y_true = pd.read_csv(uploaded_labels).values.ravel()
+                    cm = confusion_matrix(y_true, y_test_pred)
+                    plt.figure(figsize=(8,6))
+                    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                                xticklabels=le.classes_, yticklabels=le.classes_)
+                    st.pyplot(plt)
+                    plt.close()
+
+                    st.subheader("Classification Report")
+                    report = classification_report(y_true, y_test_pred, target_names=le.classes_, output_dict=True)
+                    st.dataframe(pd.DataFrame(report).transpose())
+
+        except Exception as e:
+            st.error(f"Error computing XGBoost insights: {e}")
 
     elif model_choice == "CNN":
-        st.write("🧩 CNN learns directly from wafer image patterns rather than numerical features.")
+        st.subheader("CNN Insights")
+        st.write("CNN learns directly from wafer image patterns rather than numerical features.")
+        if cnn_pipe is not None:
+            st.info("CNN pipeline is ready — you can use the Prediction tab to test images.")
+        else:
+            st.warning("CNN model not loaded. Upload or load cnn_model.keras first.")
         if os.path.exists("cnn_filters_example.png"):
             st.image("cnn_filters_example.png", caption="Example learned CNN filters", use_container_width=True)
-
+            
 # -------------------- TAB 3: ABOUT PROJECT -------------------- #
 with tabs[2]:
     st.header("About This Project")
