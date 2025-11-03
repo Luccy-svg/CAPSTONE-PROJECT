@@ -90,3 +90,66 @@ Features: Image-based (waferMap) + metadata (dieSize,failureType,lotName,trainTe
 Task Type: Image classification.
 
 Data Format: Pickled or structured array (NumPy, .pkl), and optionally .png images after transformation.
+
+## 2.2 Data Description
+
+Each wafer map image represents a semiconductor wafer subdivided into multiple die. The dataset contains wafers categorized into one of several defect pattern types or labeled as normal (no defect).
+
+Common defect types include:
+
+## 2.3 Data structure and attributes.
+
+Each record contains:
+
+WaferIndex: Unique identifier for each wafer.
+
+LotName: Production batch number, representing wafers produced under the same process conditions.
+
+FailureType: Categorical variable indicating defect type.
+
+Wafer Map Image: 2D array (typically 26×26 or 30×30) where each cell represents a die and its pass/fail status.
+
+Optional Metadata: May include process step, tool ID, or sensor readings depending on version.
+
+## 2.4 Data Quality and Challenges
+
+### Aspect Observation
+
+**Missing Values**: Some wafers have incomplete data (no label or image mismatch).
+
+**Imbalanced Classes**: Majority of wafers are labeled as “None” (normal), making minority defect patterns rare.
+
+**Noise**: Random noise due to manufacturing variability and sensor differences.
+
+Data Format: Some datasets are stored as .pkl (Pickle) files that require unpickling and image reconstruction.
+
+### Mitigation Strategies:
+
+Handle missing or corrupted wafer maps by filtering invalid entries.
+
+Apply data augmentation to balance rare defect types.
+
+Use normalization and reshaping for consistent image input size.
+
+Visualize samples per class before training to guide resampling.
+
+## 2.5 Initial Data Exploration Goals
+
+Visualize a few wafer maps for each defect type to understand pattern structure.
+
+Check Class Distribution: Verify imbalance between defect categories.
+
+Inspect Image Dimensions: Ensure uniformity across all wafers.
+
+Validate Data Integrity: Confirm each wafer has both an image and a label.
+
+Compute Basic Statistics: Such as pixel intensity distributions and label frequencies.
+
+## 2.6 Summary
+
+The dataset provides a rich, realistic simulation of semiconductor manufacturing defects.
+
+It combines computer vision challenges (pattern recognition, noise handling) with predictive modeling needs (classification, imbalance learning).
+
+Understanding the data structure and patterns will be key to designing robust models for defect detection and yield prediction, aligning both with technical depth and business objectives.
+
