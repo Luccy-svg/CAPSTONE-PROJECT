@@ -1,24 +1,18 @@
-# Core app
-streamlit==1.28.0
+# Core App 
+streamlit==1.39.0
 
-# Data & ML
-numpy==1.25.0
+# Data Science 
+numpy==1.26.4
 pandas
 scikit-learn
 xgboost==1.7.6
 joblib
 dill
 
-# Deep Learning
-tensorflow==2.20.0
-keras
+#  Deep Learning 
+tensorflow==2.20.0   # Includes compatible Keras (≥3.10)
 
-# Image processing
-Pillow
-
-# Visualization
+# Visualization & Images 
 matplotlib
 seaborn
-
-# Optional: environment variables (if used)
-python-dotenv
+Pillow
