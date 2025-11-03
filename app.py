@@ -5,7 +5,11 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import tensorflow as tf
-tf.get_logger().setLevel('ERROR')
+import logging
+
+# Replace tf.get_logger() with Python logger
+tf.get_logger = lambda: logging.getLogger('tensorflow')
+tf.get_logger().setLevel(logging.ERROR)
 
 # -------------------- IMPORT LIBRARIES -------------------- #
 import streamlit as st
