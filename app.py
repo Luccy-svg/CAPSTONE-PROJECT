@@ -127,7 +127,10 @@ with tabs[0]:
                  top_probs = sorted(probs.items(), key=lambda item: item[1], reverse=True)[:3]
                  st.caption("Top Predictions:")
                  for label, prob in top_probs:
-                    st.progress(prob)
+                    # FIX 3: Clip probability to ensure it's between 0.0 and 1.0 
+                    # to prevent StreamlitAPIException in st.progress()
+                    progress_value = np.clip(prob, 0.0, 1.0)
+                    st.progress(progress_value)
                     st.markdown(f"**{map_label(label)}**: {prob:.2f}")
 
 
