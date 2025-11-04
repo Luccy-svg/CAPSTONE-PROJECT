@@ -34,7 +34,7 @@ if "xgb_results" not in st.session_state:
 # -------------------- PATHS -------------------- #
 CNN_MODEL_PATH = "cnn_model.keras"
 LABEL_ENCODER_PATH = "demo_data/label_encoder.pkl"
-DEMO_IMAGES = "demo_data/images" # Kept for potential future use, but demo loading removed
+DEMO_IMAGES = "demo_data/images" 
 
 # -------------------- LOAD MODELS -------------------- #
 if os.path.exists(CNN_MODEL_PATH):
@@ -62,30 +62,86 @@ def map_wafer_to_rgb(wafer_map):
     """
     Maps discrete wafer map values (0, 1, 2) to distinct, high-contrast RGB colors 
     for optimal visualization in the dashboard.
-    
-    0: Non-Die/Background (Dark Gray) - Ensures high contrast for bright features.
-    1: Functional Die (Bright Cyan) - High visibility.
-    2: Defect Die (Bright Red) - Highlighted defect area.
     """
     if wafer_map is None or wafer_map.size == 0:
-        # Return a small blank dark-gray canvas
         return 50 * np.ones((10, 10, 3), dtype=np.uint8)
 
-    # Ensure the wafer map contains discrete integers
     wafer_map = wafer_map.astype(np.int8)
 
     H, W = wafer_map.shape
-    
-    # Initialize the canvas with Dark Gray background (0)
-    rgb_image = 50 * np.ones((H, W, 3), dtype=np.uint8) # Dark Gray
+    rgb_image = 50 * np.ones((H, W, 3), dtype=np.uint8) # Dark Gray Background (0)
 
-    # 1 (Good Die) -> Bright Cyan for clear visibility
-    rgb_image[wafer_map == 1] = [0, 255, 255] # Cyan/Aqua
-
-    # 2 (Defect Die) -> Bright Red for high contrast (Error/Defect)
-    rgb_image[wafer_map == 2] = [255, 0, 0]
+    rgb_image[wafer_map == 1] = [0, 255, 255] # Functional Die -> Bright Cyan
+    rgb_image[wafer_map == 2] = [255, 0, 0] # Defect Die -> Bright Red
     
     return rgb_image
+
+# --- NEW FEATURE EXTRACTION FUNCTION FOR XGBOOST ---
+def extract_features_from_wafer(wafer_map):
+    """
+    Extracts 10 numerical features from the 2D wafer map for the XGBoost model.
+    Assumes the wafer map is a 2D array of 0, 1, 2 values.
+    """
+    if wafer_map is None or wafer_map.size == 0:
+        return np.zeros(10)
+
+    # 1. Total Die Count (Value 1 + Value 2)
+    total_die = np.sum(wafer_map > 0)
+    
+    # Check if there are any die to prevent division by zero
+    if total_die == 0:
+        return np.zeros(10)
+
+    # 2. Defect Die Count (Value 2)
+    defect_die = np.sum(wafer_map == 2)
+
+    # 3. Defect Percentage
+    defect_percent = defect_die / total_die
+
+    # Isolate functional and defect areas (mask)
+    functional_map = (wafer_map == 1).astype(np.float32)
+    defect_map = (wafer_map == 2).astype(np.float32)
+    
+    # 4. Mean of Functional Area
+    mean_func = np.mean(functional_map)
+
+    # 5. Standard Deviation of Functional Area
+    std_func = np.std(functional_map)
+
+    # 6. Mean of Defect Area (Only meaningful if defects exist)
+    mean_defect = np.mean(defect_map)
+
+    # 7. Aspect Ratio of Wafer Bounding Box (Approximation)
+    # Find bounding box coordinates (where wafer_map > 0)
+    rows, cols = np.where(wafer_map > 0)
+    if len(rows) > 1:
+        height = np.max(rows) - np.min(rows) + 1
+        width = np.max(cols) - np.min(cols) + 1
+        aspect_ratio = width / height if height > 0 else 0
+    else:
+        aspect_ratio = 0
+
+    # 8. Density/Coverage (Ratio of die area to total area)
+    coverage = total_die / wafer_map.size
+    
+    # 9. Center of Mass of Defects (Row coordinate, normalized)
+    # Using scipy.ndimage.center_of_mass
+    if defect_die > 0:
+        center_of_mass = ndimage.center_of_mass(defect_map)
+        normalized_row_center = center_of_mass[0] / wafer_map.shape[0] if wafer_map.shape[0] > 0 else 0
+    else:
+        normalized_row_center = 0
+
+    # 10. Simple Image Moment (M00 of defects) - essentially the defect area
+    moment_m00 = defect_die 
+
+    # Bundle the 10 features
+    features = np.array([
+        total_die, defect_die, defect_percent, mean_func, std_func,
+        mean_defect, aspect_ratio, coverage, normalized_row_center, moment_m00
+    ])
+
+    return features
 
 # -------------------- TABS -------------------- #
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
@@ -103,13 +159,10 @@ with tabs[0]:
             type=["png","jpg","jpeg","npy"], accept_multiple_files=True
         )
 
-        # Removed the "Load Demo Images" button and its logic.
-        
         # Predict uploaded
         if uploaded_files and cnn_pipe:
             results = []
             for uploaded_file in uploaded_files:
-                # Read file content into memory
                 if uploaded_file.name.endswith(".npy"):
                     wafer = np.load(uploaded_file)
                 else:
@@ -117,12 +170,11 @@ with tabs[0]:
                     wafer = np.array(img)
                 
                 label, probs = cnn_pipe.predict(wafer)
-                # Store the wafer data along with results for display
                 results.append({
                     "File": uploaded_file.name, 
                     "Predicted_Label": label, 
                     "Probabilities": probs,
-                    "Wafer_Data": wafer # Store the array for display
+                    "Wafer_Data": wafer 
                 })
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
@@ -131,31 +183,23 @@ with tabs[0]:
         if st.session_state.cnn_results:
             idx = st.session_state.cnn_index
             r = st.session_state.cnn_results[idx]
-
-            # Retrieve wafer image data directly from session state
-            wafer = r.get("Wafer_Data") # Use .get() for safety
+            wafer = r.get("Wafer_Data") 
 
             if wafer is not None:
-                # Use the color mapping function for display (Dark Gray/Bright Cyan/Red)
                 wafer_rgb_display = map_wafer_to_rgb(wafer)
-                
-                st.image(wafer_rgb_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 3D RGB array
+                st.image(wafer_rgb_display, width=200, caption=f"Wafer Map: {r['File']}") 
                 
             st.markdown(f"**Predicted:** {map_label(r['Predicted_Label'])}")
             
-            # --- Probability Distribution (Optional Insight) ---
-            # You can show the top 3 probabilities for better context
+            # Probability Distribution (Optional Insight) 
             probs = r['Probabilities']
             if isinstance(probs, dict):
-                 # Sort and display top N probabilities
                  top_probs = sorted(probs.items(), key=lambda item: item[1], reverse=True)[:3]
                  st.caption("Top Predictions:")
                  for label, prob in top_probs:
-                    # Clip probability to ensure it's between 0.0 and 1.0 
                     progress_value = np.clip(prob, 0.0, 1.0)
                     st.progress(progress_value)
                     st.markdown(f"**{map_label(label)}**: {prob:.2f}")
-
 
             # Navigation buttons
             col1, col2 = st.columns(2)
@@ -168,21 +212,50 @@ with tabs[0]:
 
     # -------------------- XGBOOST DRAG ONLY -------------------- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
-        st.subheader("Drag `.npy` feature arrays to predict (10 features per wafer)")
+        st.subheader("Upload wafer image/feature arrays to predict (Requires 10 features)")
         uploaded_files = st.file_uploader(
-            "Upload feature arrays (.npy)", type=["npy"], accept_multiple_files=True
+            # --- UPDATED: Allow image formats here ---
+            "Upload feature arrays (.npy) or images (.png, .jpg, .jpeg)", 
+            type=["npy", "png", "jpg", "jpeg"], 
+            accept_multiple_files=True
         )
         if uploaded_files:
             results = []
             for file in uploaded_files:
-                X = np.load(file).reshape(1,-1)
+                
+                # --- XGBOOST PROCESSING LOGIC ---
+                if file.name.endswith(".npy"):
+                    # Case 1: Raw feature array (10 features) uploaded
+                    X = np.load(file).reshape(1,-1)
+                    
+                else:
+                    # Case 2: Image file uploaded -> Must extract features
+                    try:
+                        img = Image.open(file).convert("L")
+                        wafer = np.array(img)
+                        
+                        # Use the new extraction function to get the 10 features
+                        X = extract_features_from_wafer(wafer).reshape(1,-1)
+                        
+                    except Exception as e:
+                        st.error(f"Error processing image {file.name} for XGBoost feature extraction: {e}")
+                        continue
+                
+                # --- Prediction and Scaling ---
                 try:
+                    # Check if the feature vector size is correct before scaling
+                    if X.shape[1] != 10: 
+                        st.error(f"Feature count mismatch for {file.name}. Expected 10 features, got {X.shape[1]}.")
+                        continue
+
                     X_scaled = scaler.transform(X)
                     pred = xgb.predict(X_scaled)[0]
                     results.append({"File": file.name, "Predicted_Label": map_label(str(pred))})
                 except ValueError as e:
-                    st.error(f"Feature mismatch for {file.name}: {e}")
+                    st.error(f"Model/Scaler error for {file.name}: {e}")
+            
             st.session_state.xgb_results = results
+            st.subheader("XGBoost Predictions:")
             for r in results:
                 st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
