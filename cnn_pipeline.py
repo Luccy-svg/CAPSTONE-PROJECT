@@ -4,83 +4,63 @@ import joblib
 from keras.models import load_model
 from PIL import Image
 
-# Mapping your defect types (matches your notebook)
-mapping_type = {
-    'Center':0,
-    'Donut':1,
-    'Edge-Loc':2,
-    'Edge-Ring':3,
-    'Loc':4,
-    'Random':5,
-    'Scratch':6,
-    'none':7,
-    '[0 0]':7,
-    'Unknown':7
-}
-
-# Reverse mapping: numeric -> name
-reverse_mapping = {v:k for k,v in mapping_type.items()}
-
 class WaferCNNPipeline:
     """
     CNN pipeline for Keras 3: preprocessing, prediction, and probabilities.
-    Handles unseen labels safely.
     """
 
+    # Correct mapping of CNN output indices to defect labels
+    DEFECT_MAP = {
+        0: 'No Defect',
+        1: 'Center',
+        2: 'Donut',
+        3: 'Edge-Ring',
+        4: 'Scratch',
+        5: 'Near-full',
+        6: 'Random',
+        7: 'Local (Loc)',
+        8: 'Cluster'
+    }
+
     def __init__(self, model_path: str, label_encoder_path: str = None, image_size=(32, 32)):
-        self.model = load_model(model_path, compile=False)
+        self.model = load_model(model_path, compile=False)  # Keras 3
         self.image_size = image_size
-        
-        # Load label encoder if available; otherwise fallback to mapping_type
+        # Optional label encoder for compatibility, not required here
+        self.le = None
         if label_encoder_path:
             self.le = joblib.load(label_encoder_path)
-            self.use_encoder = True
-        else:
-            self.le = None
-            self.use_encoder = False
 
     def preprocess(self, wafer_image):
-        """Converts a wafer image to model-ready input."""
+        """
+        Accepts NumPy array or PIL Image, returns processed image tensor.
+        """
+        # Convert PIL image to NumPy array and resize
         if isinstance(wafer_image, Image.Image):
             wafer_image = wafer_image.convert("L").resize(self.image_size)
             wafer_image = np.array(wafer_image)
         elif isinstance(wafer_image, np.ndarray):
+            # Resize if not the target shape
             if wafer_image.shape != self.image_size:
                 wafer_image = np.array(Image.fromarray(wafer_image).resize(self.image_size))
         else:
             raise ValueError("Input must be a NumPy array or PIL Image")
 
+        # Ensure 2D grayscale
         if wafer_image.ndim != 2:
             wafer_image = wafer_image[:, :, 0]
 
-        wafer_image = wafer_image / 255.0
+        # Normalize and reshape for CNN
+        wafer_image = wafer_image.astype('float32') / 255.0
         wafer_image = wafer_image.reshape(1, self.image_size[0], self.image_size[1], 1)
         return wafer_image
 
     def predict(self, wafer_image):
         """
         Returns predicted label and probabilities dictionary.
-        Safely maps unseen classes to 'Unknown'.
         """
         x = self.preprocess(wafer_image)
-        preds = self.model.predict(x, verbose=0)[0]  # array of probabilities
+        preds = self.model.predict(x, verbose=0)[0]  # softmax probabilities
         pred_class = int(np.argmax(preds))
-
-        # Use label encoder if available
-        if self.use_encoder:
-            if pred_class < len(self.le.classes_):
-                label = self.le.inverse_transform([pred_class])[0]
-            else:
-                label = 'Unknown'
-        else:
-            # Fallback: map numeric index to defect name using reverse_mapping
-            label = reverse_mapping.get(pred_class, 'Unknown')
-
-        # Probabilities as a dict (map names to probs)
-        if self.use_encoder:
-            prob_dict = {self.le.classes_[i] if i < len(self.le.classes_) else 'Unknown': float(preds[i])
-                         for i in range(len(preds))}
-        else:
-            prob_dict = {reverse_mapping.get(i, 'Unknown'): float(preds[i]) for i in range(len(preds))}
-
-        return label, prob_dict
+        label = self.DEFECT_MAP.get(pred_class, f"Unknown ({pred_class})")
+        probs = {self.DEFECT_MAP.get(i, f"Unknown ({i})"): float(prob) for i, prob in enumerate(preds)}
+        return label, probs
