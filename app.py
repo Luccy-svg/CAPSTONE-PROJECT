@@ -11,7 +11,8 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import joblib
-from cnn_pipeline import WaferCNNPipeline
+# Assuming cnn_pipeline is available and contains WaferCNNPipeline
+from cnn_pipeline import WaferCNNPipeline 
 
 # -------------------- STREAMLIT CONFIG -------------------- #
 st.set_page_config(
@@ -87,7 +88,13 @@ with tabs[0]:
         if uploaded_files and cnn_pipe:
             results = []
             for uploaded_file in uploaded_files:
-                wafer = np.load(uploaded_file) if uploaded_file.name.endswith(".npy") else Image.open(uploaded_file).convert("L")
+                if uploaded_file.name.endswith(".npy"):
+                    wafer = np.load(uploaded_file)
+                else:
+                    # FIX 1: Ensure PIL image is converted to a NumPy array for prediction
+                    img = Image.open(uploaded_file).convert("L") # Convert to Grayscale (Luminosity)
+                    wafer = np.array(img)
+                
                 label, probs = cnn_pipe.predict(wafer)
                 results.append({"File": uploaded_file.name, "Predicted_Label": label, "Probabilities": probs})
             st.session_state.cnn_results = results
@@ -103,12 +110,26 @@ with tabs[0]:
             if os.path.exists(wafer_file):
                 wafer = np.load(wafer_file)
 
-                # Scale to 0-255 and convert to RGB for display
+                # FIX 2: Scale to 0-255 and use the 2D array directly for grayscale display
+                # This prevents st.image from misinterpreting the 3-channel stack as dark RGB.
                 wafer_display = (wafer / wafer.max() * 255).astype(np.uint8)
-                wafer_rgb = np.stack([wafer_display]*3, axis=-1)
-                st.image(wafer_rgb, width=200)
+                
+                # Removed: wafer_rgb = np.stack([wafer_display]*3, axis=-1)
+                st.image(wafer_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 2D array
+                
+            st.markdown(f"**Predicted:** {map_label(r['Predicted_Label'])}")
+            
+            # --- Probability Distribution (Optional Insight) ---
+            # You can show the top 3 probabilities for better context
+            probs = r['Probabilities']
+            if isinstance(probs, dict):
+                 # Sort and display top N probabilities
+                 top_probs = sorted(probs.items(), key=lambda item: item[1], reverse=True)[:3]
+                 st.caption("Top Predictions:")
+                 for label, prob in top_probs:
+                    st.progress(prob)
+                    st.markdown(f"**{map_label(label)}**: {prob:.2f}")
 
-            st.markdown(f"**Predicted:** {r['Predicted_Label']}")
 
             # Navigation buttons
             col1, col2 = st.columns(2)
@@ -149,9 +170,12 @@ with tabs[2]:
     st.header("About This Project")
     st.markdown("""
     This project detects **semiconductor wafer defects** using:
-    - **CNN** for image-based wafer maps  
-    - **XGBoost** for feature-based wafer data  
-    - **Streamlit** for interactive dashboard deployment  
+    - **CNN** for image-based wafer maps  
+    - **XGBoost** for feature-based wafer data  
+    - **Streamlit** for interactive dashboard deployment  
 
     **Goal:** Automate defect detection and enhance wafer yield prediction.
     """)
+    st.markdown("A typical wafer map highlights defect regions against the functional wafer area:")
+    # Illustrate a wafer defect map since the whole app revolves around it
+    st.image("https://placehold.co/600x600/1e293b/f8fafc?text=Example+Wafer+Map+with+Defects", caption="Conceptual Wafer Map showing defect patterns (e.g., 'Donut', 'Scratch').", width=300)
