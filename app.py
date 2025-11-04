@@ -40,7 +40,8 @@ def load_cnn_pipeline():
         try:
             return WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH)
         except Exception as e:
-            st.error(f"Error loading CNN Pipeline: {e}. Check if Focal Loss is correctly defined.")
+            # Added a better fallback error message based on the custom loss function
+            st.error(f"Error loading CNN Pipeline: {e}. Check if the custom Focal Loss is correctly defined in cnn_pipeline.py.")
             return None
     st.warning("CNN model or label encoder not found.")
     return None
@@ -95,18 +96,21 @@ def prepare_pixel_features_for_xgb(wafer_map, required_size=1029, target_dim=(32
     
     # Handle PIL Image input (from the updated Streamlit loop)
     if isinstance(wafer_map, Image.Image):
-        wafer_map = np.array(wafer_map.convert('L'))
+        # Use Image.NEAREST for proper resizing of categorical data
+        wafer_resized = wafer_map.convert('L').resize(target_dim, Image.NEAREST)
         
-    if wafer_map.ndim != 2:
-        if wafer_map.ndim==3 and wafer_map.shape[2]==3:
-            wafer_map = np.array(Image.fromarray(wafer_map,'RGB').convert('L'))
-        else:
-            return np.zeros(required_size)
+    elif wafer_map.ndim == 2:
+        # NumPy array case (e.g., loaded from .npy)
+        wafer_img = Image.fromarray(wafer_map.astype(np.uint8))
+        wafer_resized = wafer_img.resize(target_dim, Image.NEAREST)
+        
+    else:
+        # Fallback for unexpected array shapes
+        return np.zeros(required_size)
             
-    wafer_img = Image.fromarray(wafer_map.astype(np.uint8))
-    wafer_resized = wafer_img.resize(target_dim, Image.NEAREST)
     X_flat = np.array(wafer_resized).flatten()
     current_size = len(X_flat)
+    
     if current_size < required_size:
         return np.pad(X_flat,(0,required_size-current_size),'constant')
     else:
@@ -163,23 +167,39 @@ with tabs[0]:
         # Display current wafer and probabilities
         if st.session_state.cnn_results:
             num_results = len(st.session_state.cnn_results)
+            
+            # --- START SLIDER READABILITY FIX ---
             if num_results > 1:
-                idx = st.slider(
-                    "Select image to view",
-                    min_value=0,
-                    max_value=num_results-1,
-                    value=st.session_state.cnn_index,
+                # User-friendly display: 1 to N
+                display_value = st.session_state.cnn_index + 1 
+                
+                # Slider input is based on 1 to N
+                idx_display = st.slider(
+                    f"Select image to view (File 1 of {num_results} to File {num_results} of {num_results})",
+                    min_value=1,                      # Start at 1
+                    max_value=num_results,            # End at total count
+                    value=display_value,              # Current value is 1-based
                     key="cnn_slider"
                 )
-                st.session_state.cnn_index = idx
+                # Store the 0-based index internally
+                st.session_state.cnn_index = idx_display - 1 
+                idx = st.session_state.cnn_index
             else:
                 idx = 0
                 st.session_state.cnn_index = 0
+            # --- END SLIDER READABILITY FIX ---
 
             r = st.session_state.cnn_results[idx]
             # Wafer_Data is a NumPy array here, which is what map_wafer_to_rgb expects
             wafer_rgb = map_wafer_to_rgb(r['Wafer_Data'])
-            st.image(wafer_rgb, width=200, caption=f"Wafer Map: {r['File']}")
+            
+            # Show the file number in the caption for better tracking
+            st.image(
+                wafer_rgb, 
+                width=200, 
+                caption=f"File {idx + 1} of {num_results}: {r['File']}"
+            )
+            
             st.markdown(f"**Predicted:** <span style='color:#ff0000; font-size: 1.5em; font-weight: bold;'>{r['Predicted_Label']}</span>", unsafe_allow_html=True)
             
             st.subheader("Prediction Probabilities")
