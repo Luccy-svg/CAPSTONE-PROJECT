@@ -110,11 +110,16 @@ with tabs[0]:
             if os.path.exists(wafer_file):
                 wafer = np.load(wafer_file)
 
-                # FIX 2: Scale to 0-255 and use the 2D array directly for grayscale display
-                # This prevents st.image from misinterpreting the 3-channel stack as dark RGB.
-                wafer_display = (wafer / wafer.max() * 255).astype(np.uint8)
+                # --- FIX 2 & Robustness Update ---
+                # Check max value for robust scaling and convert to 0-255 uint8 for optimal display.
+                wafer_max = wafer.max()
+                if wafer_max > 0:
+                    # Scale to 0-255 using the maximum non-zero value
+                    wafer_display = (wafer / wafer_max * 255).astype(np.uint8)
+                else:
+                    # If max is 0 (all black map), convert to uint8 without scaling
+                    wafer_display = wafer.astype(np.uint8)
                 
-                # Removed: wafer_rgb = np.stack([wafer_display]*3, axis=-1)
                 st.image(wafer_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 2D array
                 
             st.markdown(f"**Predicted:** {map_label(r['Predicted_Label'])}")
