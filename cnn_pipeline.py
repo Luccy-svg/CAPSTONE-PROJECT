@@ -24,8 +24,8 @@ class WaferCNNPipeline:
     CNN pipeline for Keras 3: handles model loading, preprocessing, 
     and prediction for wafer map images.
     """
-    # CRITICAL UPDATE: Increased default image size for better feature retention
-    def __init__(self, model_path: str, label_encoder_path: str, image_size=(64, 64)):
+    # CRITICAL UPDATE: Reverting image size to match the original training size (32x32)
+    def __init__(self, model_path: str, label_encoder_path: str, image_size=(32, 32)):
         # CRITICAL FIX 2: Pass custom_objects to load_model 
         # Defines focal_loss upon loading to correctly deserialize the model structure.
         self.model = load_model(
@@ -39,7 +39,7 @@ class WaferCNNPipeline:
     def preprocess(self, wafer_image: Image.Image) -> np.ndarray:
         """
         Accepts PIL Image, returns processed image tensor.
-        Robustly converts PIL Image to a 64x64 array with values 0.0, 1.0, and 2.0.
+        Robustly converts PIL Image to a 32x32 array with values 0.0, 1.0, and 2.0.
         """
         # 1. Validation and Initial Conversion
         if not isinstance(wafer_image, Image.Image):
@@ -68,7 +68,7 @@ class WaferCNNPipeline:
         # 3. Final Reshape
         wafer_array = wafer_array.astype(np.float32)
 
-        # Reshape for CNN (Add batch and channel dimensions: [1, 64, 64, 1])
+        # Reshape for CNN (Add batch and channel dimensions: [1, 32, 32, 1])
         wafer_array = wafer_array.reshape(1, self.image_size[0], self.image_size[1], 1)
         return wafer_array
 
