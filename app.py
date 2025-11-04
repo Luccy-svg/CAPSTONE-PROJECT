@@ -101,7 +101,8 @@ with tabs[0]:
         st.subheader("Upload wafer images (.npy or .png/.jpg/.jpeg)")
         uploaded_files = st.file_uploader("Upload wafer maps", type=["png","jpg","jpeg","npy"], accept_multiple_files=True)
         
-        if uploaded_files:
+        # Load files only once
+        if uploaded_files and not st.session_state.cnn_results:
             results = []
             for file in uploaded_files:
                 wafer = None
@@ -120,7 +121,7 @@ with tabs[0]:
             idx = st.session_state.cnn_index
             r = st.session_state.cnn_results[idx]
             wafer_rgb = map_wafer_to_rgb(r['Wafer_Data'])
-            st.image(wafer_rgb,width=200,caption=f"Wafer Map: {r['File']}")
+            st.image(wafer_rgb, width=200, caption=f"Wafer Map: {r['File']}")
             st.markdown(f"**Predicted:** {r['Predicted_Label']}")
             st.subheader("Prediction Probabilities")
             probs = r['Probabilities']
@@ -134,15 +135,15 @@ with tabs[0]:
             def prev_image(): st.session_state.cnn_index = max(0, st.session_state.cnn_index-1)
             def next_image(): st.session_state.cnn_index = min(len(st.session_state.cnn_results)-1, st.session_state.cnn_index+1)
 
-            col1,col2 = st.columns(2)
-            with col1: st.button("Previous", on_click=prev_image)
-            with col2: st.button("Next", on_click=next_image)
+            col1, col2 = st.columns(2)
+            with col1: st.button("Previous", on_click=prev_image, key="prev_btn")
+            with col2: st.button("Next", on_click=next_image, key="next_btn")
 
     # --- XGBOOST MODEL --- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         st.subheader("Upload wafer images or .npy feature arrays")
         uploaded_files = st.file_uploader("Upload wafer maps", type=["npy","png","jpg","jpeg"], accept_multiple_files=True)
-        if uploaded_files:
+        if uploaded_files and not st.session_state.xgb_results:
             results = []
             for file in uploaded_files:
                 wafer = None
@@ -157,8 +158,10 @@ with tabs[0]:
                 pred_label = inv_mapping.get(pred_idx,f"Unknown ({pred_idx})")
                 results.append({"File":file.name,"Predicted_Label":pred_label,"Raw_Pred":pred_idx})
             st.session_state.xgb_results = results
+
+        if st.session_state.xgb_results:
             st.subheader("XGBoost Predictions (mapped to defect types):")
-            for r in results:
+            for r in st.session_state.xgb_results:
                 st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
 # -------------------- TAB 2: MODEL INSIGHTS -------------------- #
