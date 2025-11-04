@@ -33,8 +33,6 @@ if "xgb_results" not in st.session_state:
 CNN_MODEL_PATH = "cnn_model.keras"
 LABEL_ENCODER_PATH = "demo_data/label_encoder.pkl"
 DEMO_IMAGES = "demo_data/images"
-XGB_MODEL_PATH = "xgboost_improved.pkl"
-SCALER_PATH = "scaler.pkl"
 
 # -------------------- LOAD MODELS -------------------- #
 if os.path.exists(CNN_MODEL_PATH):
@@ -43,9 +41,12 @@ else:
     st.error(f"CNN model not found: {CNN_MODEL_PATH}")
     cnn_pipe = None
 
-if os.path.exists(XGB_MODEL_PATH) and os.path.exists(SCALER_PATH):
-    xgb = joblib.load(XGB_MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
+xgb_model_path = "xgboost_improved.pkl"
+scaler_path = "scaler.pkl"
+
+if os.path.exists(xgb_model_path):
+    xgb = joblib.load(xgb_model_path)
+    scaler = joblib.load(scaler_path)
 else:
     st.warning("XGBoost model or scaler not found")
     xgb = None
@@ -96,11 +97,17 @@ with tabs[0]:
         if st.session_state.cnn_results:
             idx = st.session_state.cnn_index
             r = st.session_state.cnn_results[idx]
-            # Show wafer image
-            wafer_file = os.path.join(DEMO_IMAGES, r["File"]) if os.path.exists(os.path.join(DEMO_IMAGES, r["File"])) else None
-            if wafer_file:
+
+            # Load wafer image (demo or uploaded)
+            wafer_file = os.path.join(DEMO_IMAGES, r["File"])
+            if os.path.exists(wafer_file):
                 wafer = np.load(wafer_file)
-                st.image(wafer*255, width=200, clamp=True)
+
+                # Scale to 0-255 and convert to RGB for display
+                wafer_display = (wafer / wafer.max() * 255).astype(np.uint8)
+                wafer_rgb = np.stack([wafer_display]*3, axis=-1)
+                st.image(wafer_rgb, width=200)
+
             st.markdown(f"**Predicted:** {r['Predicted_Label']}")
 
             # Navigation buttons
@@ -112,7 +119,7 @@ with tabs[0]:
                 if st.button("Next"):
                     st.session_state.cnn_index = min(len(st.session_state.cnn_results)-1, st.session_state.cnn_index + 1)
 
-    # -------------------- XGBOOST DRAG ONLY WITH THUMBNAIL -------------------- #
+    # -------------------- XGBOOST DRAG ONLY -------------------- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         st.subheader("Drag `.npy` feature arrays to predict (10 features per wafer)")
         uploaded_files = st.file_uploader(
@@ -121,25 +128,16 @@ with tabs[0]:
         if uploaded_files:
             results = []
             for file in uploaded_files:
-                # Load wafer feature array
                 X = np.load(file).reshape(1,-1)
                 try:
                     X_scaled = scaler.transform(X)
                     pred = xgb.predict(X_scaled)[0]
-                    label_str = map_label(str(pred))
-
-                    # Display small wafer if 32x32 flattened
-                    if X.shape[1] == 1024:  # 32*32
-                        wafer_img = X.reshape(32,32)
-                        wafer_display = (wafer_img*255).astype(np.uint8)
-                        st.image(wafer_display, caption=f"{file.name} → {label_str}", width=100, clamp=True)
-                    else:
-                        st.markdown(f"**{file.name} → {label_str}**")
-
-                    results.append({"File": file.name, "Predicted_Label": label_str})
+                    results.append({"File": file.name, "Predicted_Label": map_label(str(pred))})
                 except ValueError as e:
                     st.error(f"Feature mismatch for {file.name}: {e}")
             st.session_state.xgb_results = results
+            for r in results:
+                st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
 # -------------------- TAB 2: MODEL INSIGHTS -------------------- #
 with tabs[1]:
