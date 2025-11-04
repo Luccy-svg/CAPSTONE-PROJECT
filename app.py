@@ -52,11 +52,9 @@ mapping_type = {
     'Center':0,'Donut':1,'Edge-Loc':2,'Edge-Ring':3,'Loc':4,
     'Random':5,'Scratch':6,'none':7,'[0 0]':7,'Unknown':7
 }
-# Inverse mapping for XGBoost display
 inv_mapping = {v:k for k,v in mapping_type.items()}
 
 def map_label(label):
-    """Map label integer or string to human-readable defect type."""
     try:
         label_int = int(label)
         return inv_mapping.get(label_int, f"Unknown ({label})")
@@ -64,7 +62,6 @@ def map_label(label):
         return str(label)
 
 def map_wafer_to_rgb(wafer_map):
-    """Convert wafer 2D array to RGB image for display."""
     if wafer_map is None or wafer_map.size == 0:
         return 50 * np.ones((10,10,3), dtype=np.uint8)
     wafer_map = wafer_map.astype(np.int8)
@@ -75,7 +72,6 @@ def map_wafer_to_rgb(wafer_map):
     return rgb
 
 def prepare_pixel_features_for_xgb(wafer_map, required_size=1029, target_dim=(32,32)):
-    """Resize wafer, flatten, and pad to 1029 features for XGBoost."""
     if wafer_map is None or wafer_map.size == 0:
         return np.zeros(required_size)
     if wafer_map.ndim != 2:
@@ -100,9 +96,11 @@ with tabs[0]:
     st.header("Choose Model for Prediction")
     model_choice = st.radio("Select model type:", ["CNN (Image-Based)", "XGBoost (Feature-Based)"])
 
+    # --- CNN MODEL --- #
     if model_choice == "CNN (Image-Based)" and cnn_pipe:
         st.subheader("Upload wafer images (.npy or .png/.jpg/.jpeg)")
         uploaded_files = st.file_uploader("Upload wafer maps", type=["png","jpg","jpeg","npy"], accept_multiple_files=True)
+        
         if uploaded_files:
             results = []
             for file in uploaded_files:
@@ -117,6 +115,7 @@ with tabs[0]:
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
 
+        # Display current wafer and probabilities
         if st.session_state.cnn_results:
             idx = st.session_state.cnn_index
             r = st.session_state.cnn_results[idx]
@@ -131,15 +130,15 @@ with tabs[0]:
                     st.progress(np.clip(prob,0,1))
                     st.markdown(f"**{label}**: {prob:.2f}")
 
-            # Navigation
-            col1,col2 = st.columns(2)
-            with col1:
-                if st.button("Previous"):
-                    st.session_state.cnn_index = max(0,st.session_state.cnn_index-1)
-            with col2:
-                if st.button("Next"):
-                    st.session_state.cnn_index = min(len(st.session_state.cnn_results)-1, st.session_state.cnn_index+1)
+            # Navigation callbacks
+            def prev_image(): st.session_state.cnn_index = max(0, st.session_state.cnn_index-1)
+            def next_image(): st.session_state.cnn_index = min(len(st.session_state.cnn_results)-1, st.session_state.cnn_index+1)
 
+            col1,col2 = st.columns(2)
+            with col1: st.button("Previous", on_click=prev_image)
+            with col2: st.button("Next", on_click=next_image)
+
+    # --- XGBOOST MODEL --- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         st.subheader("Upload wafer images or .npy feature arrays")
         uploaded_files = st.file_uploader("Upload wafer maps", type=["npy","png","jpg","jpeg"], accept_multiple_files=True)
