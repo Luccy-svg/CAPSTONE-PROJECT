@@ -30,6 +30,9 @@ if "cnn_index" not in st.session_state:
     st.session_state.cnn_index = 0
 if "xgb_results" not in st.session_state:
     st.session_state.xgb_results = []
+# NEW STATE: Store extracted features for display
+if "xgb_features" not in st.session_state:
+    st.session_state.xgb_features = {}
 
 # -------------------- PATHS -------------------- #
 CNN_MODEL_PATH = "cnn_model.keras"
@@ -76,43 +79,28 @@ def map_wafer_to_rgb(wafer_map):
     
     return rgb_image
 
-# --- NEW FEATURE EXTRACTION FUNCTION FOR XGBOOST ---
+# --- FEATURE EXTRACTION FUNCTION (KEPT FOR REFERENCE) ---
 def extract_features_from_wafer(wafer_map):
     """
     Extracts 10 numerical features from the 2D wafer map for the XGBoost model.
-    Assumes the wafer map is a 2D array of 0, 1, 2 values.
     """
     if wafer_map is None or wafer_map.size == 0:
         return np.zeros(10)
 
-    # 1. Total Die Count (Value 1 + Value 2)
     total_die = np.sum(wafer_map > 0)
-    
-    # Check if there are any die to prevent division by zero
     if total_die == 0:
         return np.zeros(10)
 
-    # 2. Defect Die Count (Value 2)
     defect_die = np.sum(wafer_map == 2)
-
-    # 3. Defect Percentage
     defect_percent = defect_die / total_die
 
-    # Isolate functional and defect areas (mask)
     functional_map = (wafer_map == 1).astype(np.float32)
     defect_map = (wafer_map == 2).astype(np.float32)
     
-    # 4. Mean of Functional Area
     mean_func = np.mean(functional_map)
-
-    # 5. Standard Deviation of Functional Area
     std_func = np.std(functional_map)
-
-    # 6. Mean of Defect Area (Only meaningful if defects exist)
     mean_defect = np.mean(defect_map)
 
-    # 7. Aspect Ratio of Wafer Bounding Box (Approximation)
-    # Find bounding box coordinates (where wafer_map > 0)
     rows, cols = np.where(wafer_map > 0)
     if len(rows) > 1:
         height = np.max(rows) - np.min(rows) + 1
@@ -121,27 +109,44 @@ def extract_features_from_wafer(wafer_map):
     else:
         aspect_ratio = 0
 
-    # 8. Density/Coverage (Ratio of die area to total area)
     coverage = total_die / wafer_map.size
     
-    # 9. Center of Mass of Defects (Row coordinate, normalized)
-    # Using scipy.ndimage.center_of_mass
     if defect_die > 0:
         center_of_mass = ndimage.center_of_mass(defect_map)
         normalized_row_center = center_of_mass[0] / wafer_map.shape[0] if wafer_map.shape[0] > 0 else 0
     else:
         normalized_row_center = 0
 
-    # 10. Simple Image Moment (M00 of defects) - essentially the defect area
     moment_m00 = defect_die 
 
-    # Bundle the 10 features
     features = np.array([
         total_die, defect_die, defect_percent, mean_func, std_func,
         mean_defect, aspect_ratio, coverage, normalized_row_center, moment_m00
     ])
-
     return features
+
+# --- NEW PIXEL PREPARATION FUNCTION FOR MISMATCHED MODELS ---
+def prepare_pixel_features_for_xgb(wafer_map, required_size=1029):
+    """
+    Prepares the wafer map for the XGBoost model by flattening and resizing/padding 
+    to match the expected feature count (1029) indicated by the loaded scaler.
+    This assumes the model was trained on raw pixel data.
+    """
+    # 1. Ensure map is 2D and flatten
+    X_flat = wafer_map.flatten()
+    current_size = len(X_flat)
+
+    if current_size == required_size:
+        # Perfect match
+        return X_flat
+    elif current_size < required_size:
+        # Pad with zeros to meet the required size
+        padding_needed = required_size - current_size
+        return np.pad(X_flat, (0, padding_needed), 'constant', constant_values=0)
+    else:
+        # Truncate if larger (unlikely for fixed-size training)
+        return X_flat[:required_size]
+
 
 # -------------------- TABS -------------------- #
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
@@ -212,9 +217,14 @@ with tabs[0]:
 
     # -------------------- XGBOOST DRAG ONLY -------------------- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
-        st.subheader("Upload wafer image/feature arrays to predict (Requires 10 features)")
+        # --- WARNING ABOUT FEATURE MISMATCH ---
+        st.warning("""
+        ⚠️ **XGBoost Model Mismatch Detected:** The loaded scaler (`scaler.pkl`) requires **1029 features**, not the 10 engineered features. 
+        The prediction logic has been temporarily modified to use **raw pixel data** (flattened image) 
+        to match the loaded model's training data structure.
+        """)
+        st.subheader("Upload wafer image/feature arrays to predict (Requires 1029 features)")
         uploaded_files = st.file_uploader(
-            # --- UPDATED: Allow image formats here ---
             "Upload feature arrays (.npy) or images (.png, .jpg, .jpeg)", 
             type=["npy", "png", "jpg", "jpeg"], 
             accept_multiple_files=True
@@ -224,28 +234,36 @@ with tabs[0]:
             for file in uploaded_files:
                 
                 # --- XGBOOST PROCESSING LOGIC ---
+                X = None
+                wafer = None
+                
                 if file.name.endswith(".npy"):
-                    # Case 1: Raw feature array (10 features) uploaded
-                    X = np.load(file).reshape(1,-1)
+                    # Case 1: Raw NumPy array uploaded. Assume it's an image or a flattened feature array
+                    wafer = np.load(file)
                     
                 else:
-                    # Case 2: Image file uploaded -> Must extract features
+                    # Case 2: Image file uploaded 
                     try:
                         img = Image.open(file).convert("L")
                         wafer = np.array(img)
-                        
-                        # Use the new extraction function to get the 10 features
-                        X = extract_features_from_wafer(wafer).reshape(1,-1)
-                        
                     except Exception as e:
-                        st.error(f"Error processing image {file.name} for XGBoost feature extraction: {e}")
+                        st.error(f"Error reading image {file.name} for XGBoost: {e}")
+                        continue
+                
+                # Use the new preparation function to get the 1029 features
+                if wafer is not None:
+                    try:
+                        X = prepare_pixel_features_for_xgb(wafer).reshape(1, -1)
+                    except Exception as e:
+                        st.error(f"Error preparing pixel features for {file.name}: {e}")
                         continue
                 
                 # --- Prediction and Scaling ---
                 try:
-                    # Check if the feature vector size is correct before scaling
-                    if X.shape[1] != 10: 
-                        st.error(f"Feature count mismatch for {file.name}. Expected 10 features, got {X.shape[1]}.")
+                    # Explicitly check for the required feature size: 1029
+                    required_features = 1029 
+                    if X is None or X.shape[1] != required_features: 
+                        st.error(f"Feature count mismatch for {file.name}. Expected {required_features} features, got {X.shape[1] if X is not None else 0}.")
                         continue
 
                     X_scaled = scaler.transform(X)
@@ -255,7 +273,7 @@ with tabs[0]:
                     st.error(f"Model/Scaler error for {file.name}: {e}")
             
             st.session_state.xgb_results = results
-            st.subheader("XGBoost Predictions:")
+            st.subheader("XGBoost Predictions (Using Raw Pixels):")
             for r in results:
                 st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
