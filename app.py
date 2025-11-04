@@ -11,6 +11,7 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import joblib
+import pandas as pd
 # Assuming cnn_pipeline is available and contains WaferCNNPipeline
 from cnn_pipeline import WaferCNNPipeline 
 
@@ -33,7 +34,7 @@ if "xgb_results" not in st.session_state:
 # -------------------- PATHS -------------------- #
 CNN_MODEL_PATH = "cnn_model.keras"
 LABEL_ENCODER_PATH = "demo_data/label_encoder.pkl"
-DEMO_IMAGES = "demo_data/images"
+DEMO_IMAGES = "demo_data/images" # Kept for potential future use, but demo loading removed
 
 # -------------------- LOAD MODELS -------------------- #
 if os.path.exists(CNN_MODEL_PATH):
@@ -76,11 +77,9 @@ def map_wafer_to_rgb(wafer_map):
     H, W = wafer_map.shape
     
     # Initialize the canvas with Dark Gray background (0)
-    # --- FIX: Reverted background to Dark Gray (50, 50, 50) for high contrast features ---
     rgb_image = 50 * np.ones((H, W, 3), dtype=np.uint8) # Dark Gray
 
     # 1 (Good Die) -> Bright Cyan for clear visibility
-    # --- FIX: Changed to Bright Cyan (Aqua) ---
     rgb_image[wafer_map == 1] = [0, 255, 255] # Cyan/Aqua
 
     # 2 (Defect Die) -> Bright Red for high contrast (Error/Defect)
@@ -98,36 +97,33 @@ with tabs[0]:
 
     # -------------------- CNN INTERACTIVE -------------------- #
     if model_choice == "CNN (Image-Based)":
-        st.subheader("Upload wafer images or use demo images")
+        st.subheader("Upload wafer images (.npy or .png) to run prediction")
         uploaded_files = st.file_uploader(
             "Upload wafer maps (.png, .jpg, .jpeg, .npy)", 
             type=["png","jpg","jpeg","npy"], accept_multiple_files=True
         )
 
-        # Load demo if no upload
-        if st.button("Load Demo Images") and cnn_pipe:
-            demo_files = sorted([os.path.join(DEMO_IMAGES, f) for f in os.listdir(DEMO_IMAGES) if f.endswith(".npy")])
-            results = []
-            for file in demo_files:
-                wafer = np.load(file)
-                label, probs = cnn_pipe.predict(wafer)
-                results.append({"File": os.path.basename(file), "Predicted_Label": label, "Probabilities": probs})
-            st.session_state.cnn_results = results
-            st.session_state.cnn_index = 0
-
+        # Removed the "Load Demo Images" button and its logic.
+        
         # Predict uploaded
         if uploaded_files and cnn_pipe:
             results = []
             for uploaded_file in uploaded_files:
+                # Read file content into memory
                 if uploaded_file.name.endswith(".npy"):
                     wafer = np.load(uploaded_file)
                 else:
-                    # FIX 1: Ensure PIL image is converted to a NumPy array for prediction
-                    img = Image.open(uploaded_file).convert("L") # Convert to Grayscale (Luminosity)
+                    img = Image.open(uploaded_file).convert("L")
                     wafer = np.array(img)
                 
                 label, probs = cnn_pipe.predict(wafer)
-                results.append({"File": uploaded_file.name, "Predicted_Label": label, "Probabilities": probs})
+                # Store the wafer data along with results for display
+                results.append({
+                    "File": uploaded_file.name, 
+                    "Predicted_Label": label, 
+                    "Probabilities": probs,
+                    "Wafer_Data": wafer # Store the array for display
+                })
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
 
@@ -136,13 +132,11 @@ with tabs[0]:
             idx = st.session_state.cnn_index
             r = st.session_state.cnn_results[idx]
 
-            # Load wafer image (demo or uploaded)
-            wafer_file = os.path.join(DEMO_IMAGES, r["File"])
-            if os.path.exists(wafer_file):
-                wafer = np.load(wafer_file)
+            # Retrieve wafer image data directly from session state
+            wafer = r.get("Wafer_Data") # Use .get() for safety
 
-                # --- FIX 2 & Robustness Update ---
-                # Use the new color mapping function for display (now using Dark Gray/Bright Cyan)
+            if wafer is not None:
+                # Use the color mapping function for display (Dark Gray/Bright Cyan/Red)
                 wafer_rgb_display = map_wafer_to_rgb(wafer)
                 
                 st.image(wafer_rgb_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 3D RGB array
@@ -157,8 +151,7 @@ with tabs[0]:
                  top_probs = sorted(probs.items(), key=lambda item: item[1], reverse=True)[:3]
                  st.caption("Top Predictions:")
                  for label, prob in top_probs:
-                    # FIX 3: Clip probability to ensure it's between 0.0 and 1.0 
-                    # to prevent StreamlitAPIException in st.progress()
+                    # Clip probability to ensure it's between 0.0 and 1.0 
                     progress_value = np.clip(prob, 0.0, 1.0)
                     st.progress(progress_value)
                     st.markdown(f"**{map_label(label)}**: {prob:.2f}")
@@ -195,8 +188,55 @@ with tabs[0]:
 
 # -------------------- TAB 2: MODEL INSIGHTS -------------------- #
 with tabs[1]:
-    st.header("Model Insights")
-    st.write("CNN and XGBoost insights will be added here. (Confusion matrices, probabilities, etc.)")
+    st.header("Model Insights for Current Prediction")
+    
+    if st.session_state.cnn_results:
+        idx = st.session_state.cnn_index
+        r = st.session_state.cnn_results[idx]
+        current_file = r['File']
+        predicted_label = map_label(r['Predicted_Label'])
+        probs = r['Probabilities']
+        
+        st.markdown(f"### Analysis for Wafer: **{current_file}**")
+        st.markdown(f"**Primary Prediction:** <span style='color: #00ffff; font-size: 1.2em;'>**{predicted_label}**</span>", unsafe_allow_html=True)
+
+        if isinstance(probs, dict):
+            
+            # --- Probability Distribution (Heat Map Equivalent) ---
+            st.subheader("Confidence Distribution Across Defect Classes")
+            st.write("This chart visualizes the model's confidence for each possible defect type for the current wafer.")
+            
+            # Prepare data for charting
+            prob_df = pd.DataFrame(
+                {'Defect Type': [map_label(k) for k in probs.keys()], 'Confidence': probs.values()}
+            )
+            prob_df = prob_df.sort_values(by='Confidence', ascending=False)
+            
+            # Use Streamlit bar chart for clear probability visualization
+            st.bar_chart(prob_df.set_index('Defect Type'), height=350)
+            
+            
+            # --- Conceptual Confusion Matrix Section ---
+            st.subheader("Conceptual Confusion Matrix Analysis")
+            
+            st.write("""
+            Since we are analyzing single predictions without a known ground truth label, we can't show a full confusion matrix 
+            (True Positives, False Negatives, etc.). 
+            """)
+            
+            # Display a simplified prediction table
+            cm_data = {
+                'Metric': ['Predicted Type', 'Model Confidence'],
+                'Value': [predicted_label, f"{probs[r['Predicted_Label']]:.4f}"]
+            }
+            st.table(pd.DataFrame(cm_data))
+
+            st.info("""
+            **Full Confusion Matrix:** To view a full confusion matrix, the model would need to be run against a pre-labeled test set to calculate overall performance metrics.
+            """)
+
+    else:
+        st.warning("Please upload a wafer image or run a prediction on the 'Predict Defects' tab first to view insights.")
 
 # -------------------- TAB 3: ABOUT -------------------- #
 with tabs[2]:
