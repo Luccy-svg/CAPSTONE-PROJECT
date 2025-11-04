@@ -27,8 +27,8 @@ for key in ["cnn_results", "cnn_index", "xgb_results", "xgb_features"]:
         st.session_state[key] = [] if "results" in key else 0 if "index" in key else {}
 
 # -------------------- PATHS -------------------- #
-CNN_MODEL_PATH = "best_cnn.keras"  # Use best model
-LABEL_ENCODER_PATH = "demo_data/label_encoder.pkl"
+CNN_MODEL_PATH = "cnn_model.keras"  # Use best model
+LABEL_ENCODER_PATH = "label_encoder.pkl"
 XGB_MODEL_PATH = "xgboost_improved.pkl"
 SCALER_PATH = "scaler.pkl"
 
