@@ -12,12 +12,17 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import joblib
-import matplotlib.pyplot as plt
+import logging
 from cnn_pipeline import WaferCNNPipeline
+
+# Suppress TensorFlow warnings
+import tensorflow as tf
+tf.get_logger = lambda: logging.getLogger('tensorflow')
+tf.get_logger().setLevel(logging.ERROR)
 
 # -------------------- STREAMLIT CONFIG -------------------- #
 st.set_page_config(
-    page_title="ChipSleuth: Wafer Defect Dashboard",
+    page_title="ChipSleuth",
     page_icon="🕵️‍♀️",
     layout="wide"
 )
@@ -31,123 +36,108 @@ if "cnn_index" not in st.session_state:
 if "xgb_results" not in st.session_state:
     st.session_state.xgb_results = []
 
-# -------------------- PATHS -------------------- #
+# -------------------- FILE PATHS -------------------- #
 CNN_MODEL_PATH = "cnn_model.keras"
-LABEL_ENCODER_PATH = "demo_data/label_encoder.pkl"
-DEMO_IMAGES = "demo_data/images"
+LABEL_ENCODER_PATH = "label_encoder.pkl"
+SCALER_PATH = "scaler.pkl"
+XGB_MODEL_PATH = "xgboost_improved.pkl"
 
 # -------------------- LOAD MODELS -------------------- #
-if os.path.exists(CNN_MODEL_PATH):
+if os.path.exists(CNN_MODEL_PATH) and os.path.exists(LABEL_ENCODER_PATH):
     cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH)
 else:
-    st.error(f"CNN model not found: {CNN_MODEL_PATH}")
+    st.error("CNN model or label encoder not found.")
     cnn_pipe = None
 
-xgb_model_path = "xgboost_improved.pkl"
-scaler_path = "scaler.pkl"
-
-if os.path.exists(xgb_model_path):
-    xgb = joblib.load(xgb_model_path)
-    scaler = joblib.load(scaler_path)
+if os.path.exists(XGB_MODEL_PATH) and os.path.exists(SCALER_PATH):
+    xgb = joblib.load(XGB_MODEL_PATH)
+    scaler = joblib.load(SCALER_PATH)
 else:
-    st.warning("XGBoost model or scaler not found")
+    st.error("XGBoost model or scaler not found.")
     xgb = None
     scaler = None
 
 # -------------------- UTILITY -------------------- #
 def map_label(label):
-    return "No Defect" if label == "0 0" else label
+    return "No Defect" if label in [0, "0 0", "0"] else str(label)
+
+def display_cnn_image(idx):
+    if st.session_state.cnn_results:
+        r = st.session_state.cnn_results[idx]
+        wafer_file = r["File"]
+        wafer = np.load(wafer_file) if wafer_file.endswith(".npy") else np.array(Image.open(wafer_file).convert("L"))
+        img_to_show = (wafer * 255).astype(np.uint8)
+        st.image(img_to_show, width=300, clamp=True, channels="L")
+        st.markdown(f"**Predicted Defect:** {r['Predicted_Label']}")
+        # Show class probabilities
+        for cls, prob in r["Probabilities"].items():
+            st.progress(int(prob*100), text=cls)
 
 # -------------------- TABS -------------------- #
-tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
+tabs = st.tabs(["Predict Defects", "About Project"])
 
 # -------------------- TAB 1: PREDICTION -------------------- #
 with tabs[0]:
-    st.header("Choose Model for Prediction")
     model_choice = st.radio("Select model type:", ["CNN (Image-Based)", "XGBoost (Feature-Based)"])
 
-    # -------------------- CNN INTERACTIVE -------------------- #
-    if model_choice == "CNN (Image-Based)":
-        st.subheader("Upload wafer images or use demo images")
+    # -------------------- CNN -------------------- #
+    if model_choice == "CNN (Image-Based)" and cnn_pipe:
         uploaded_files = st.file_uploader(
-            "Upload wafer maps (.png, .jpg, .jpeg, .npy)", 
-            type=["png","jpg","jpeg","npy"], accept_multiple_files=True
+            "Upload wafer images (.png, .jpg, .jpeg, .npy)", type=["png","jpg","jpeg","npy"], accept_multiple_files=True
         )
-
-        # Load demo if no upload
-        if st.button("Load Demo Images") and cnn_pipe:
-            demo_files = sorted([os.path.join(DEMO_IMAGES, f) for f in os.listdir(DEMO_IMAGES) if f.endswith(".npy")])
-            results = []
-            for file in demo_files:
-                wafer = np.load(file)
+        if uploaded_files:
+            st.session_state.cnn_results = []
+            for f in uploaded_files:
+                wafer = np.load(f) if f.name.endswith(".npy") else np.array(Image.open(f).convert("L"))
                 label, probs = cnn_pipe.predict(wafer)
-                results.append({"File": os.path.basename(file), "Predicted_Label": label, "Probabilities": probs})
-            st.session_state.cnn_results = results
+                st.session_state.cnn_results.append({
+                    "File": f.name,
+                    "Predicted_Label": map_label(label),
+                    "Probabilities": probs
+                })
             st.session_state.cnn_index = 0
 
-        # Predict uploaded
-        if uploaded_files and cnn_pipe:
-            results = []
-            for uploaded_file in uploaded_files:
-                wafer = np.load(uploaded_file) if uploaded_file.name.endswith(".npy") else Image.open(uploaded_file).convert("L")
-                label, probs = cnn_pipe.predict(wafer)
-                results.append({"File": uploaded_file.name, "Predicted_Label": label, "Probabilities": probs})
-            st.session_state.cnn_results = results
-            st.session_state.cnn_index = 0
-
-        # Display interactive image
         if st.session_state.cnn_results:
-            idx = st.session_state.cnn_index
-            r = st.session_state.cnn_results[idx]
-            # Show wafer image
-            wafer_file = os.path.join(DEMO_IMAGES, r["File"]) if os.path.exists(os.path.join(DEMO_IMAGES, r["File"])) else None
-            if wafer_file:
-                wafer = np.load(wafer_file)
-                st.image(wafer*255, width=200, clamp=True)
-            st.markdown(f"**Predicted:** {r['Predicted_Label']}")
-
-            # Navigation buttons
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns([1,2,1])
             with col1:
                 if st.button("Previous"):
-                    st.session_state.cnn_index = max(0, st.session_state.cnn_index - 1)
+                    st.session_state.cnn_index = max(st.session_state.cnn_index-1, 0)
             with col2:
+                display_cnn_image(st.session_state.cnn_index)
+            with col3:
                 if st.button("Next"):
-                    st.session_state.cnn_index = min(len(st.session_state.cnn_results)-1, st.session_state.cnn_index + 1)
+                    st.session_state.cnn_index = min(st.session_state.cnn_index+1, len(st.session_state.cnn_results)-1)
 
-    # -------------------- XGBOOST DRAG ONLY -------------------- #
+    # -------------------- XGBoost -------------------- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
-        st.subheader("Drag `.npy` feature arrays to predict (10 features per wafer)")
+        st.subheader("Drag `.npy` feature arrays (10 features each) here")
         uploaded_files = st.file_uploader(
             "Upload feature arrays (.npy)", type=["npy"], accept_multiple_files=True
         )
         if uploaded_files:
-            results = []
-            for file in uploaded_files:
-                X = np.load(file).reshape(1,-1)
+            st.session_state.xgb_results = []
+            for f in uploaded_files:
+                X = np.load(f).reshape(1,-1)
                 try:
                     X_scaled = scaler.transform(X)
                     pred = xgb.predict(X_scaled)[0]
-                    results.append({"File": file.name, "Predicted_Label": map_label(str(pred))})
+                    st.session_state.xgb_results.append({
+                        "File": f.name,
+                        "Predicted_Label": map_label(pred)
+                    })
                 except ValueError as e:
-                    st.error(f"Feature mismatch for {file.name}: {e}")
-            st.session_state.xgb_results = results
-            for r in results:
+                    st.error(f"Feature mismatch for {f.name}: {e}")
+            for r in st.session_state.xgb_results:
                 st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
-# -------------------- TAB 2: MODEL INSIGHTS -------------------- #
+# -------------------- TAB 2: ABOUT -------------------- #
 with tabs[1]:
-    st.header("Model Insights")
-    st.write("CNN and XGBoost insights will be added here. (Confusion matrices, probabilities, etc.)")
-
-# -------------------- TAB 3: ABOUT -------------------- #
-with tabs[2]:
     st.header("About This Project")
     st.markdown("""
     This project detects **semiconductor wafer defects** using:
     - **CNN** for image-based wafer maps  
     - **XGBoost** for feature-based wafer data  
-    - **Streamlit** for interactive dashboard deployment  
+    - **Streamlit** for an interactive dashboard deployment  
 
     **Goal:** Automate defect detection and enhance wafer yield prediction.
     """)
