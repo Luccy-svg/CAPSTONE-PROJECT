@@ -61,9 +61,10 @@ def map_wafer_to_rgb(wafer_map):
     """
     Maps discrete wafer map values (0, 1, 2) to distinct RGB colors 
     for high-contrast visualization in the dashboard.
-    0: Background (Black)
-    1: Functional Die (Light Gray)
-    2: Defect Die (Red)
+    
+    0: Background (Dark Blue/Black)
+    1: Functional Die (Bright Yellow)
+    2: Defect Die (Bright Red)
     """
     if wafer_map is None or wafer_map.size == 0:
         return np.zeros((10, 10, 3), dtype=np.uint8)
@@ -72,13 +73,14 @@ def map_wafer_to_rgb(wafer_map):
     wafer_map = wafer_map.astype(np.int8)
 
     H, W = wafer_map.shape
-    # Initialize a black canvas (0=Background)
+    # Initialize the canvas with a black background (0)
     rgb_image = np.zeros((H, W, 3), dtype=np.uint8)
 
-    # 1 (Good Die) -> Light Gray for visibility
-    rgb_image[wafer_map == 1] = [200, 200, 200]
+    # 1 (Good Die) -> Bright Yellow for maximum visibility and contrast
+    # --- FIX: Changed from gray to high-contrast Yellow ---
+    rgb_image[wafer_map == 1] = [255, 255, 0]
 
-    # 2 (Defect Die) -> Red for high contrast (Error/Defect)
+    # 2 (Defect Die) -> Bright Red for high contrast (Error/Defect)
     rgb_image[wafer_map == 2] = [255, 0, 0]
     
     return rgb_image
@@ -137,7 +139,7 @@ with tabs[0]:
                 wafer = np.load(wafer_file)
 
                 # --- FIX 2 & Robustness Update ---
-                # Use the new color mapping function for display
+                # Use the new color mapping function for display (now using high-contrast Yellow/Red)
                 wafer_rgb_display = map_wafer_to_rgb(wafer)
                 
                 st.image(wafer_rgb_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 3D RGB array
