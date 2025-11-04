@@ -99,12 +99,8 @@ with tabs[0]:
     # --- CNN MODEL --- #
     if model_choice == "CNN (Image-Based)" and cnn_pipe:
         st.subheader("Upload wafer images (.npy or .png/.jpg/.jpeg)")
-        uploaded_files = st.file_uploader(
-            "Upload wafer maps", 
-            type=["png","jpg","jpeg","npy"], 
-            accept_multiple_files=True
-        )
-
+        uploaded_files = st.file_uploader("Upload wafer maps", type=["png","jpg","jpeg","npy"], accept_multiple_files=True)
+        
         if uploaded_files:
             results = []
             for file in uploaded_files:
@@ -115,25 +111,25 @@ with tabs[0]:
                     img = Image.open(file).convert("L")
                     wafer = np.array(img)
                 label, probs = cnn_pipe.predict(wafer)
-                results.append({
-                    "File": file.name,
-                    "Predicted_Label": label,
-                    "Probabilities": probs,
-                    "Wafer_Data": wafer
-                })
+                results.append({"File":file.name,"Predicted_Label":label,"Probabilities":probs,"Wafer_Data":wafer})
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
 
-        # Display current wafer and probabilities with slider
+        # Display current wafer and probabilities
         if st.session_state.cnn_results:
-            idx = st.slider(
-                "Select image to view",
-                min_value=0,
-                max_value=len(st.session_state.cnn_results)-1,
-                value=st.session_state.cnn_index,
-                key="cnn_slider"
-            )
-            st.session_state.cnn_index = idx
+            num_results = len(st.session_state.cnn_results)
+            if num_results > 1:
+                idx = st.slider(
+                    "Select image to view",
+                    min_value=0,
+                    max_value=num_results-1,
+                    value=st.session_state.cnn_index,
+                    key="cnn_slider"
+                )
+                st.session_state.cnn_index = idx
+            else:
+                idx = 0
+                st.session_state.cnn_index = 0
 
             r = st.session_state.cnn_results[idx]
             wafer_rgb = map_wafer_to_rgb(r['Wafer_Data'])
@@ -144,17 +140,13 @@ with tabs[0]:
             if isinstance(probs, dict):
                 top_probs = sorted(probs.items(), key=lambda x:x[1], reverse=True)
                 for label, prob in top_probs:
-                    st.progress(np.clip(prob,0,1))
+                    st.progress(np.clip(prob, 0, 1))
                     st.markdown(f"**{label}**: {prob:.2f}")
 
     # --- XGBOOST MODEL --- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         st.subheader("Upload wafer images or .npy feature arrays")
-        uploaded_files = st.file_uploader(
-            "Upload wafer maps", 
-            type=["npy","png","jpg","jpeg"], 
-            accept_multiple_files=True
-        )
+        uploaded_files = st.file_uploader("Upload wafer maps", type=["npy","png","jpg","jpeg"], accept_multiple_files=True)
         if uploaded_files:
             results = []
             for file in uploaded_files:
