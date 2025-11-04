@@ -99,10 +99,13 @@ with tabs[0]:
     # --- CNN MODEL --- #
     if model_choice == "CNN (Image-Based)" and cnn_pipe:
         st.subheader("Upload wafer images (.npy or .png/.jpg/.jpeg)")
-        uploaded_files = st.file_uploader("Upload wafer maps", type=["png","jpg","jpeg","npy"], accept_multiple_files=True)
-        
-        # Load files only once
-        if uploaded_files and not st.session_state.cnn_results:
+        uploaded_files = st.file_uploader(
+            "Upload wafer maps", 
+            type=["png","jpg","jpeg","npy"], 
+            accept_multiple_files=True
+        )
+
+        if uploaded_files:
             results = []
             for file in uploaded_files:
                 wafer = None
@@ -112,13 +115,26 @@ with tabs[0]:
                     img = Image.open(file).convert("L")
                     wafer = np.array(img)
                 label, probs = cnn_pipe.predict(wafer)
-                results.append({"File":file.name,"Predicted_Label":label,"Probabilities":probs,"Wafer_Data":wafer})
+                results.append({
+                    "File": file.name,
+                    "Predicted_Label": label,
+                    "Probabilities": probs,
+                    "Wafer_Data": wafer
+                })
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
 
-        # Display current wafer and probabilities
+        # Display current wafer and probabilities with slider
         if st.session_state.cnn_results:
-            idx = st.session_state.cnn_index
+            idx = st.slider(
+                "Select image to view",
+                min_value=0,
+                max_value=len(st.session_state.cnn_results)-1,
+                value=st.session_state.cnn_index,
+                key="cnn_slider"
+            )
+            st.session_state.cnn_index = idx
+
             r = st.session_state.cnn_results[idx]
             wafer_rgb = map_wafer_to_rgb(r['Wafer_Data'])
             st.image(wafer_rgb, width=200, caption=f"Wafer Map: {r['File']}")
@@ -131,19 +147,15 @@ with tabs[0]:
                     st.progress(np.clip(prob,0,1))
                     st.markdown(f"**{label}**: {prob:.2f}")
 
-            # Navigation callbacks
-            def prev_image(): st.session_state.cnn_index = max(0, st.session_state.cnn_index-1)
-            def next_image(): st.session_state.cnn_index = min(len(st.session_state.cnn_results)-1, st.session_state.cnn_index+1)
-
-            col1, col2 = st.columns(2)
-            with col1: st.button("Previous", on_click=prev_image, key="prev_btn")
-            with col2: st.button("Next", on_click=next_image, key="next_btn")
-
     # --- XGBOOST MODEL --- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         st.subheader("Upload wafer images or .npy feature arrays")
-        uploaded_files = st.file_uploader("Upload wafer maps", type=["npy","png","jpg","jpeg"], accept_multiple_files=True)
-        if uploaded_files and not st.session_state.xgb_results:
+        uploaded_files = st.file_uploader(
+            "Upload wafer maps", 
+            type=["npy","png","jpg","jpeg"], 
+            accept_multiple_files=True
+        )
+        if uploaded_files:
             results = []
             for file in uploaded_files:
                 wafer = None
@@ -158,10 +170,8 @@ with tabs[0]:
                 pred_label = inv_mapping.get(pred_idx,f"Unknown ({pred_idx})")
                 results.append({"File":file.name,"Predicted_Label":pred_label,"Raw_Pred":pred_idx})
             st.session_state.xgb_results = results
-
-        if st.session_state.xgb_results:
             st.subheader("XGBoost Predictions (mapped to defect types):")
-            for r in st.session_state.xgb_results:
+            for r in results:
                 st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
 # -------------------- TAB 2: MODEL INSIGHTS -------------------- #
@@ -172,11 +182,13 @@ with tabs[1]:
         r = st.session_state.cnn_results[idx]
         st.markdown(f"### Analysis for Wafer: **{r['File']}**")
         st.markdown(f"**Primary Prediction:** <span style='color:#00ffff'>{r['Predicted_Label']}</span>", unsafe_allow_html=True)
-        if isinstance(r['Probabilities'],dict):
-            prob_df = pd.DataFrame({'Defect Type':[map_label(k) for k in r['Probabilities'].keys()],
-                                    'Confidence':r['Probabilities'].values()}).sort_values(by='Confidence',ascending=False)
+        if isinstance(r['Probabilities'], dict):
+            prob_df = pd.DataFrame({
+                'Defect Type': [map_label(k) for k in r['Probabilities'].keys()],
+                'Confidence': r['Probabilities'].values()
+            }).sort_values(by='Confidence', ascending=False)
             st.subheader("Confidence Distribution Across Defect Classes")
-            st.bar_chart(prob_df.set_index('Defect Type'),height=350)
+            st.bar_chart(prob_df.set_index('Defect Type'), height=350)
     else:
         st.warning("Please run a prediction on the 'Predict Defects' tab first.")
 
