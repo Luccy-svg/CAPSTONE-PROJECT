@@ -9,26 +9,10 @@ class WaferCNNPipeline:
     CNN pipeline for Keras 3: preprocessing, prediction, and probabilities.
     """
 
-    # Correct mapping of CNN output indices to defect labels
-    DEFECT_MAP = {
-        0: 'No Defect',
-        1: 'Center',
-        2: 'Donut',
-        3: 'Edge-Ring',
-        4: 'Scratch',
-        5: 'Near-full',
-        6: 'Random',
-        7: 'Local (Loc)',
-        8: 'Cluster'
-    }
-
-    def __init__(self, model_path: str, label_encoder_path: str = None, image_size=(32, 32)):
+    def __init__(self, model_path: str, label_encoder_path: str, image_size=(32, 32)):
         self.model = load_model(model_path, compile=False)  # Keras 3
+        self.le = joblib.load(label_encoder_path)           # Correct label encoder
         self.image_size = image_size
-        # Optional label encoder for compatibility, not required here
-        self.le = None
-        if label_encoder_path:
-            self.le = joblib.load(label_encoder_path)
 
     def preprocess(self, wafer_image):
         """
@@ -50,7 +34,7 @@ class WaferCNNPipeline:
             wafer_image = wafer_image[:, :, 0]
 
         # Normalize and reshape for CNN
-        wafer_image = wafer_image.astype('float32') / 255.0
+        wafer_image = wafer_image.astype(np.float32) / 255.0
         wafer_image = wafer_image.reshape(1, self.image_size[0], self.image_size[1], 1)
         return wafer_image
 
@@ -59,8 +43,15 @@ class WaferCNNPipeline:
         Returns predicted label and probabilities dictionary.
         """
         x = self.preprocess(wafer_image)
-        preds = self.model.predict(x, verbose=0)[0]  # softmax probabilities
-        pred_class = int(np.argmax(preds))
-        label = self.DEFECT_MAP.get(pred_class, f"Unknown ({pred_class})")
-        probs = {self.DEFECT_MAP.get(i, f"Unknown ({i})"): float(prob) for i, prob in enumerate(preds)}
+        preds = self.model.predict(x, verbose=0)[0]  # array of probabilities
+
+        # Ensure classes are consistent with label encoder
+        if len(preds) != len(self.le.classes_):
+            raise ValueError(f"Mismatch: model output {len(preds)} vs label encoder {len(self.le.classes_)} classes")
+
+        pred_idx = int(np.argmax(preds))
+        label = self.le.inverse_transform([pred_idx])[0]
+
+        # Probabilities as dict {label: probability}
+        probs = {self.le.inverse_transform([i])[0]: float(p) for i,p in enumerate(preds)}
         return label, probs
