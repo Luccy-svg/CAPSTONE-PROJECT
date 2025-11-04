@@ -1,0 +1,6 @@
+file,failureType,failureNum_enc
+wafer_0_Edge-Ring.npy,Edge-Ring,0
+wafer_1_Center.npy,Center,1
+wafer_2_Loc.npy,Loc,2
+wafer_3_Scratch.npy,Scratch,3
+wafer_4_Random.npy,Random,4
