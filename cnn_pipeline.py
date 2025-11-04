@@ -3,76 +3,84 @@ import numpy as np
 import joblib
 from keras.models import load_model
 from PIL import Image
-import os
+
+# Mapping your defect types (matches your notebook)
+mapping_type = {
+    'Center':0,
+    'Donut':1,
+    'Edge-Loc':2,
+    'Edge-Ring':3,
+    'Loc':4,
+    'Random':5,
+    'Scratch':6,
+    'none':7,
+    '[0 0]':7,
+    'Unknown':7
+}
+
+# Reverse mapping: numeric -> name
+reverse_mapping = {v:k for k,v in mapping_type.items()}
 
 class WaferCNNPipeline:
     """
     CNN pipeline for Keras 3: preprocessing, prediction, and probabilities.
+    Handles unseen labels safely.
     """
 
     def __init__(self, model_path: str, label_encoder_path: str = None, image_size=(32, 32)):
-        # Load CNN model
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"CNN model not found: {model_path}")
-        self.model = load_model(model_path, compile=False)  # Keras 3
-
-        # Load LabelEncoder if path provided
-        self.le = None
-        if label_encoder_path and os.path.exists(label_encoder_path):
-            self.le = joblib.load(label_encoder_path)
-
+        self.model = load_model(model_path, compile=False)
         self.image_size = image_size
+        
+        # Load label encoder if available; otherwise fallback to mapping_type
+        if label_encoder_path:
+            self.le = joblib.load(label_encoder_path)
+            self.use_encoder = True
+        else:
+            self.le = None
+            self.use_encoder = False
 
     def preprocess(self, wafer_image):
-        """
-        Accepts NumPy array or PIL Image, returns processed image tensor.
-        Auto-detects if scaling is needed.
-        """
-        # Convert PIL image to NumPy array and resize
+        """Converts a wafer image to model-ready input."""
         if isinstance(wafer_image, Image.Image):
-            wafer_image = wafer_image.convert("L").resize(self.image_size, Image.NEAREST)
+            wafer_image = wafer_image.convert("L").resize(self.image_size)
             wafer_image = np.array(wafer_image)
         elif isinstance(wafer_image, np.ndarray):
-            # Resize if shape mismatch
             if wafer_image.shape != self.image_size:
-                wafer_image = np.array(Image.fromarray(wafer_image).resize(self.image_size, Image.NEAREST))
+                wafer_image = np.array(Image.fromarray(wafer_image).resize(self.image_size))
         else:
             raise ValueError("Input must be a NumPy array or PIL Image")
 
-        # Ensure 2D grayscale
-        if wafer_image.ndim == 3 and wafer_image.shape[2] == 3:
+        if wafer_image.ndim != 2:
             wafer_image = wafer_image[:, :, 0]
 
-        # Normalize to [0,1] if max > 1
-        if wafer_image.max() > 1.0:
-            wafer_image = wafer_image / 255.0
-
-        # Reshape for CNN
+        wafer_image = wafer_image / 255.0
         wafer_image = wafer_image.reshape(1, self.image_size[0], self.image_size[1], 1)
         return wafer_image
 
     def predict(self, wafer_image):
         """
-        Returns predicted label (string) and probability dictionary.
+        Returns predicted label and probabilities dictionary.
+        Safely maps unseen classes to 'Unknown'.
         """
         x = self.preprocess(wafer_image)
         preds = self.model.predict(x, verbose=0)[0]  # array of probabilities
         pred_class = int(np.argmax(preds))
 
-        # Map to label
-        if self.le is not None:
-            if pred_class in range(len(self.le.classes_)):
+        # Use label encoder if available
+        if self.use_encoder:
+            if pred_class < len(self.le.classes_):
                 label = self.le.inverse_transform([pred_class])[0]
             else:
-                label = f"Unknown ({pred_class})"
+                label = 'Unknown'
         else:
-            label = str(pred_class)
+            # Fallback: map numeric index to defect name using reverse_mapping
+            label = reverse_mapping.get(pred_class, 'Unknown')
 
-        # Build probabilities dict with human-readable labels
-        if self.le is not None:
-            probs = {self.le.inverse_transform([i])[0]: float(preds[i]) 
-                     for i in range(len(preds))}
+        # Probabilities as a dict (map names to probs)
+        if self.use_encoder:
+            prob_dict = {self.le.classes_[i] if i < len(self.le.classes_) else 'Unknown': float(preds[i])
+                         for i in range(len(preds))}
         else:
-            probs = {str(i): float(preds[i]) for i in range(len(preds))}
+            prob_dict = {reverse_mapping.get(i, 'Unknown'): float(preds[i]) for i in range(len(preds))}
 
-        return label, probs
+        return label, prob_dict
