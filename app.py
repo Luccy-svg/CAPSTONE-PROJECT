@@ -58,8 +58,26 @@ else:
     scaler = None
 
 # -------------------- UTILITY -------------------- #
+
+# Standard Defect ID to Label Mapping for Wafer Inspection datasets
+DEFECT_MAP = {
+    '0': 'No Defect',
+    '1': 'Center',
+    '2': 'Donut',
+    '3': 'Edge-Ring',
+    '4': 'Scratch',
+    '5': 'Near-full',
+    '6': 'Random',
+    '7': 'Local (Loc)', # '7' is typically 'Local'
+    '8': 'Cluster',
+    '0 0': 'No Defect' # Used by CNN pipeline for no defect
+}
+
 def map_label(label):
-    return "No Defect" if label == "0 0" else label
+    """
+    Maps numerical or '0 0' labels to human-readable defect names using DEFECT_MAP.
+    """
+    return DEFECT_MAP.get(str(label), f"Unknown Defect ID: {label}")
 
 def map_wafer_to_rgb(wafer_map):
     """
@@ -219,7 +237,7 @@ with tabs[0]:
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         # --- WARNING ABOUT FEATURE MISMATCH ---
         st.warning("""
-        ⚠️ **XGBoost Model Mismatch Detected:** The loaded scaler (`scaler.pkl`) requires **1029 features**, not the 10 engineered features. 
+        **XGBoost Model Mismatch Detected:** The loaded scaler (`scaler.pkl`) requires **1029 features**, not the 10 engineered features. 
         The prediction logic has been temporarily modified to use **raw pixel data** (flattened image) 
         to match the loaded model's training data structure.
         """)
@@ -265,10 +283,11 @@ with tabs[0]:
                     if X is None or X.shape[1] != required_features: 
                         st.error(f"Feature count mismatch for {file.name}. Expected {required_features} features, got {X.shape[1] if X is not None else 0}.")
                         continue
-
+                    
+                    # Ensure integer prediction for correct label mapping
                     X_scaled = scaler.transform(X)
-                    pred = xgb.predict(X_scaled)[0]
-                    results.append({"File": file.name, "Predicted_Label": map_label(str(pred))})
+                    pred = int(xgb.predict(X_scaled)[0]) 
+                    results.append({"File": file.name, "Predicted_Label": map_label(pred)})
                 except ValueError as e:
                     st.error(f"Model/Scaler error for {file.name}: {e}")
             
