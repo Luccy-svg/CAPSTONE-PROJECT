@@ -1,63 +1,102 @@
-# -------------------- SUPPRESS WARNINGS -------------------- #
-import warnings
+import warnings, os
 warnings.filterwarnings("ignore")
-import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import tensorflow as tf
 import logging
-
-# Replace tf.get_logger() with Python logger
-tf.get_logger = lambda: logging.getLogger('tensorflow')
 tf.get_logger().setLevel(logging.ERROR)
 
-# -------------------- IMPORT LIBRARIES -------------------- #
 import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
-from PIL import Image
+from PIL import Image, ImageDraw
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.preprocessing import LabelEncoder
 from cnn_pipeline import WaferCNNPipeline
 
-# -------------------- STREAMLIT CONFIG -------------------- #
-st.set_page_config(
-    page_title="ChipSleuth: Wafer Defect Dashboard",
-    page_icon="🕵️‍♀️",
-    layout="wide"
-)
+# -------------------- FILE PATHS -------------------- #
+CNN_MODEL_PATH = "cnn_model.keras"
+XGB_PATH = "xgboost_improved.pkl"
+SCALER_PATH = "scaler.pkl"
+LABEL_ENCODER_PATH = "label_encoder.pkl"
+DEMO_PATH = "demo_data"
+DEMO_IMAGES = os.path.join(DEMO_PATH, "images")
+DEMO_YTEST = os.path.join(DEMO_PATH, "y_test.npy")
+DEMO_LABEL_ENCODER = os.path.join(DEMO_PATH, "label_encoder.pkl")
+DEMO_XGB = os.path.join(DEMO_PATH, "xgb_demo.csv")
 
+# -------------------- GENERATE DEMO DATA -------------------- #
+def generate_demo_data():
+    os.makedirs(DEMO_IMAGES, exist_ok=True)
+    defect_types = ["Edge-Ring", "Center", "Loc", "Scratch", "Random"]
+    failure_num_enc = {ftype: i for i, ftype in enumerate(defect_types)}
+
+    # CNN demo images
+    for i, ftype in enumerate(defect_types):
+        wafer = np.zeros((32,32), dtype=np.float32)
+        if ftype == "Center": wafer[12:20,12:20] = 1.0
+        elif ftype == "Edge-Ring": wafer[0,:] = wafer[-1,:] = wafer[:,0] = wafer[:,-1] = 1.0
+        elif ftype == "Loc": wafer[8:12,8:12] = 1.0
+        elif ftype == "Scratch": wafer[16:18,:] = 1.0
+        elif ftype == "Random": wafer[np.random.randint(0,32,5), np.random.randint(0,32,5)] = 1.0
+        Image.fromarray((wafer*255).astype(np.uint8)).save(f"{DEMO_IMAGES}/wafer_{i}_{ftype}.png")
+        np.save(f"{DEMO_IMAGES}/wafer_{i}_{ftype}.npy", wafer)
+
+    # CNN labels
+    df_cnn = pd.DataFrame({
+        "file": [f"wafer_{i}_{ftype}.npy" for i, ftype in enumerate(defect_types)],
+        "failureType": defect_types,
+        "failureNum_enc": [failure_num_enc[f] for f in defect_types]
+    })
+    df_cnn.to_csv(os.path.join(DEMO_PATH,"cnn_labels.csv"), index=False)
+
+    # XGBoost demo features (1029 features)
+    num_features = 1029
+    X_demo = np.random.rand(len(defect_types), num_features)
+    y_demo = np.array([failure_num_enc[f] for f in defect_types])
+    df_xgb = pd.DataFrame(X_demo, columns=[f"feature_{i}" for i in range(num_features)])
+    df_xgb["true_label"] = y_demo
+    df_xgb.to_csv(DEMO_XGB, index=False)
+
+    # Labels for insights
+    np.save(DEMO_YTEST, y_demo)
+    np.save(os.path.join(DEMO_PATH,"y_test_pred.npy"), y_demo)
+
+    # Label Encoder
+    le = LabelEncoder()
+    le.fit(defect_types)
+    joblib.dump(le, DEMO_LABEL_ENCODER)
+
+# Auto-generate demo if missing
+if not os.path.exists(DEMO_XGB) or not os.path.exists(DEMO_YTEST):
+    generate_demo_data()
+
+# -------------------- STREAMLIT CONFIG -------------------- #
+st.set_page_config(page_title="ChipSleuth: Wafer Defect Dashboard", page_icon="🕵️‍♀️", layout="wide")
 st.title("ChipSleuth – Semiconductor Wafer Defect Detection")
 
 # -------------------- SESSION STATE -------------------- #
-if "cnn_results" not in st.session_state:
-    st.session_state.cnn_results = None
+for key in ["cnn_results","xgb_results","wafer_index","xgb_index"]:
+    if key not in st.session_state: st.session_state[key] = None if "results" in key else 0
 
-# -------------------- FILE CHECKS -------------------- #
-CNN_MODEL_PATH = "cnn_model.keras"
-LABEL_ENCODER_PATH = "label_encoder.pkl"
-
-st.write("Files in working directory:", os.listdir())
-st.write("CNN exists:", os.path.exists(CNN_MODEL_PATH))
-
-# -------------------- LOAD CNN MODEL -------------------- #
-if os.path.exists(CNN_MODEL_PATH):
-    st.success("CNN model is present.")
-    cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH)
-else:
-    st.error(f"Model file not found: {CNN_MODEL_PATH}")
-    cnn_pipe = None
-
-# -------------------- LOAD XGBOOST AND UTILITIES -------------------- #
-xgb = joblib.load("xgboost_improved.pkl")
-scaler = joblib.load("scaler.pkl")
-le = joblib.load("label_encoder.pkl")
+# -------------------- LOAD MODELS -------------------- #
+cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH) if os.path.exists(CNN_MODEL_PATH) else None
+xgb = joblib.load(XGB_PATH)
+scaler = joblib.load(SCALER_PATH)
+le = joblib.load(LABEL_ENCODER_PATH)
 
 # -------------------- UTILITY -------------------- #
 def map_label(label):
-    return "No Defect" if label == "0 0" else label
+    return "No Defect" if label == "0 0" else str(label)
+
+def show_wafer(file, label, probs):
+    wafer = np.load(file)
+    wafer_img = Image.fromarray((wafer*255).astype(np.uint8)).resize((128,128), Image.NEAREST)
+    st.image(wafer_img, caption=f"{os.path.basename(file)} → {label}")
+    st.bar_chart(pd.DataFrame([probs]))
 
 # -------------------- TABS -------------------- #
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
@@ -65,166 +104,109 @@ tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
 # -------------------- TAB 1: PREDICTION -------------------- #
 with tabs[0]:
     st.header("Choose Model Type for Prediction")
-    model_choice = st.radio(
-        "Select model type:",
-        ["XGBoost (Feature-Based)", "CNN (Image-Based)"]
-    )
+    model_choice = st.radio("Select model type:", ["XGBoost (Feature-Based)", "CNN (Image-Based)"])
 
-    # ---------- XGBoost Prediction ---------- #
-    if model_choice == "XGBoost (Feature-Based)":
-        st.subheader("Upload CSV for Feature-Based Prediction")
-        uploaded_csv = st.file_uploader("Upload wafer features (.csv)", type=["csv"])
-        if uploaded_csv is not None:
-            df = pd.read_csv(uploaded_csv)
-            st.dataframe(df.head(), use_container_width=True)
-
-            X_scaled = scaler.transform(df.values)
+    # ---------- Demo Data ----------
+    st.subheader("Or use Demo Data")
+    if st.button("Load Demo Data"):
+        if model_choice == "XGBoost (Feature-Based)":
+            df = pd.read_csv(DEMO_XGB)
+            X_scaled = scaler.transform(df.drop(columns=["true_label"]).values)
             preds = xgb.predict(X_scaled)
-            decoded = le.inverse_transform(preds)
-            df["Predicted Defect"] = decoded
-            df["Predicted Defect"] = df["Predicted Defect"].apply(map_label)
+            df["Predicted Defect"] = [map_label(p) for p in preds]
+            st.session_state.xgb_results = df
+            st.dataframe(df, use_container_width=True)
+            st.download_button("Download XGBoost Predictions", df.to_csv(index=False).encode("utf-8"), "xgb_predictions.csv")
 
-            st.success("Prediction complete using XGBoost!")
-            st.dataframe(df[["Predicted Defect"]], use_container_width=True)
-
-    # ---------- CNN Prediction ---------- #
-    else:
-        st.subheader("Upload Wafer Map Images for CNN Prediction")
-        uploaded_files = st.file_uploader(
-            "Upload wafer maps (.png, .jpg, .jpeg, .npy)",
-            type=["png", "jpg", "jpeg", "npy"],
-            accept_multiple_files=True
-        )
-
-        if uploaded_files and cnn_pipe is not None:
+        elif model_choice == "CNN (Image-Based)":
+            demo_files = sorted([os.path.join(DEMO_IMAGES, f) for f in os.listdir(DEMO_IMAGES) if f.endswith(".npy")])
             results = []
-
-            for uploaded_file in uploaded_files:
-                # Load wafer image
-                if uploaded_file.name.endswith(".npy"):
-                    wafer = np.load(uploaded_file)
-                else:
-                    wafer = Image.open(uploaded_file).convert("L")
-
-                label, probs = cnn_pipe.predict(wafer)
-                results.append({
-                    "File": uploaded_file.name,
-                    "Predicted_Label": map_label(label),
-                    "Probabilities": probs
-                })
-
-            # Save results to session state for insights
+            for file in demo_files:
+                label, probs = cnn_pipe.predict(np.load(file))
+                results.append({"File": os.path.basename(file), "Predicted_Label": map_label(label), "Probabilities": probs})
             st.session_state.cnn_results = results
+            st.session_state.current_idx = 0
 
-            # Display results table
-            df_results = pd.DataFrame([{"File": r["File"], "Predicted_Label": r["Predicted_Label"]} for r in results])
-            st.dataframe(df_results, use_container_width=True)
+            # Navigation buttons
+            col1, col2, col3 = st.columns([1,2,1])
+            with col1:
+                if st.button("Previous"):
+                    st.session_state.current_idx = max(0, st.session_state.current_idx-1)
+            with col3:
+                if st.button("Next"):
+                    st.session_state.current_idx = min(len(demo_files)-1, st.session_state.current_idx+1)
 
-            # Show images + probability bars
-            for r, uploaded_file in zip(results, uploaded_files):
-                if uploaded_file.name.endswith(".npy"):
-                    wafer = np.load(uploaded_file)
-                else:
-                    wafer = Image.open(uploaded_file).convert("L")
+            # Show wafer
+            idx = st.session_state.current_idx
+            show_wafer(demo_files[idx], results[idx]["Predicted_Label"], results[idx]["Probabilities"])
+            st.download_button("Download CNN Predictions", pd.DataFrame([{"File": r["File"], "Predicted_Label": r["Predicted_Label"]} for r in results]).to_csv(index=False).encode("utf-8"), "cnn_predictions.csv")
 
-                fig, ax = plt.subplots(1, 2, figsize=(8, 3))
-                ax[0].imshow(wafer, cmap="gray")
-                ax[0].set_title(f"{uploaded_file.name}\nPredicted: {r['Predicted_Label']}")
-                ax[0].axis("off")
-
-                ax[1].barh(list(r["Probabilities"].keys()), list(r["Probabilities"].values()))
-                ax[1].set_title("Class Probabilities")
-                st.pyplot(fig)
-                plt.close(fig)
-
-            st.success("CNN Predictions complete!")
-        else:
-            st.info("Upload wafer map images to start predictions.")
+    # ---------- Upload real images ----------
+    uploaded_files = st.file_uploader("Upload wafer maps (.png, .jpg, .jpeg, .npy)", type=["png","jpg","jpeg","npy"], accept_multiple_files=True)
+    if uploaded_files and cnn_pipe:
+        results = []
+        for f in uploaded_files:
+            wafer = np.load(f) if f.name.endswith(".npy") else np.array(Image.open(f).convert("L"))
+            label, probs = cnn_pipe.predict(wafer)
+            results.append({"File": f.name, "Predicted_Label": map_label(label), "Probabilities": probs})
+        st.session_state.cnn_results = results
+        for r, f in zip(results, uploaded_files):
+            wafer = np.load(f) if f.name.endswith(".npy") else np.array(Image.open(f).convert("L"))
+            wafer_img = Image.fromarray((wafer*255).astype(np.uint8)).resize((128,128), Image.NEAREST)
+            st.image(wafer_img, caption=f"{f.name} → {r['Predicted_Label']}")
+            st.bar_chart(pd.DataFrame([r["Probabilities"]]))
+        st.download_button("Download CNN Predictions", pd.DataFrame([{"File": r["File"], "Predicted_Label": r["Predicted_Label"]} for r in results]).to_csv(index=False).encode("utf-8"), "cnn_predictions.csv")
 
 # -------------------- TAB 2: MODEL INSIGHTS -------------------- #
 with tabs[1]:
     st.header("Model Insights")
     model_choice = st.selectbox("Select Model to View Insights", ["XGBoost", "CNN"])
 
-    # ---------- XGBoost Insights ---------- #
-    if model_choice == "XGBoost":
-        st.subheader("XGBoost Insights")
-        uploaded_csv = st.file_uploader(
-            "Upload CSV of test features (.csv) for XGBoost insights",
-            type=["csv"]
-        )
-
-        if uploaded_csv is not None:
-            df_test = pd.read_csv(uploaded_csv)
-            st.write("Test features preview:", df_test.head())
-
-            X_test_scaled = scaler.transform(df_test.values)
-            y_test_pred = xgb.predict(X_test_scaled)
-            decoded_pred = le.inverse_transform(y_test_pred)
-
-            st.subheader("Predictions Overview")
-            st.dataframe(pd.DataFrame({"Predicted": [map_label(d) for d in decoded_pred]}), use_container_width=True)
-
-            uploaded_labels = st.file_uploader("Upload true labels CSV", type=["csv"], key="ytest")
-            if uploaded_labels:
-                y_true = pd.read_csv(uploaded_labels).values.ravel()
-                y_true = [map_label(y) for y in y_true]
-
-                cm = confusion_matrix(y_true, [map_label(d) for d in decoded_pred])
-                plt.figure(figsize=(8,6))
-                sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                            xticklabels=sorted(set(y_true)), yticklabels=sorted(set(y_true)))
-                st.pyplot(plt)
-                plt.close()
-
-                report = classification_report(y_true, [map_label(d) for d in decoded_pred], output_dict=True)
-                st.subheader("Classification Report")
-                st.dataframe(pd.DataFrame(report).transpose())
-
-    # ---------- CNN Insights ---------- #
-    elif model_choice == "CNN":
-        st.subheader("CNN Insights")
-        st.write("CNN learns directly from wafer image patterns.")
-
-        if st.session_state.cnn_results:
-            try:
-                y_true = joblib.load("y_test.pkl")
-                y_true = [map_label(y) for y in y_true]
-                y_pred = [r["Predicted_Label"] for r in st.session_state.cnn_results]
-
-                if len(y_true) != len(y_pred):
-                    st.warning("Mismatch in length. Showing available insights.")
-                    min_len = min(len(y_true), len(y_pred))
-                    y_true = y_true[:min_len]
-                    y_pred = y_pred[:min_len]
-
-                # Confusion Matrix
-                cm = confusion_matrix(y_true, y_pred, labels=sorted(set(y_true)))
-                plt.figure(figsize=(8,6))
-                sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                            xticklabels=sorted(set(y_true)), yticklabels=sorted(set(y_true)))
-                st.pyplot(plt)
-                plt.close()
-
-                # Classification Report
-                report = classification_report(y_true, y_pred, output_dict=True)
-                st.subheader("Classification Report")
-                st.dataframe(pd.DataFrame(report).transpose())
-
-            except FileNotFoundError:
-                st.warning("y_test.pkl not found. Run XGBoost predictions or upload true labels.")
-
+    # ---------- XGBoost Insights ----------
+    if model_choice == "XGBoost" and st.session_state.xgb_results is not None:
+        df = st.session_state.xgb_results
+        is_demo = df["true_label"].max() < len(le.classes_)
+        if is_demo:
+            y_true = [map_label(str(y)) for y in df["true_label"].values]
+            y_pred = [map_label(str(d)) for d in df["Predicted Defect"].values]
         else:
-            st.info("Run CNN predictions first to view insights.")
+            y_true = df["true_label"].values
+            y_pred = le.transform(df["Predicted Defect"].values)
+        classes_in_data = sorted(set(y_true))
+        cm = confusion_matrix(y_true, y_pred, labels=classes_in_data)
+        plt.figure(figsize=(8,6))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=classes_in_data, yticklabels=classes_in_data)
+        st.pyplot(plt)
+        plt.close()
+        report = classification_report(y_true, y_pred, labels=classes_in_data, target_names=classes_in_data, output_dict=True)
+        st.subheader("Classification Report")
+        st.dataframe(pd.DataFrame(report).transpose())
 
-# -------------------- TAB 3: ABOUT PROJECT -------------------- #
+    # ---------- CNN Insights ----------
+    elif model_choice == "CNN" and st.session_state.cnn_results:
+        y_true_raw = np.load(DEMO_YTEST)
+        y_true = [map_label(str(y)) for y in y_true_raw]
+        y_pred = [r["Predicted_Label"] for r in st.session_state.cnn_results]
+        classes_in_data = sorted(set(y_true))
+        cm = confusion_matrix(y_true, y_pred, labels=classes_in_data)
+        plt.figure(figsize=(8,6))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=classes_in_data, yticklabels=classes_in_data)
+        st.pyplot(plt)
+        plt.close()
+        report = classification_report(y_true, y_pred, labels=classes_in_data, target_names=classes_in_data, output_dict=True)
+        st.subheader("Classification Report")
+        st.dataframe(pd.DataFrame(report).transpose())
+
+    else:
+        st.info("Run or load predictions first to view insights.")
+
+# -------------------- TAB 3: ABOUT -------------------- #
 with tabs[2]:
     st.header("About This Project")
     st.markdown("""
     This project detects **semiconductor wafer defects** using:
     - **CNN** for image-based wafer maps  
     - **XGBoost** for feature-based wafer data  
-    - **SMOTE** for synthetic balancing of minority defect classes  
     - **Streamlit** for an interactive dashboard deployment  
 
     **Goal:** Automate defect detection and enhance wafer yield prediction.
