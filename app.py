@@ -33,19 +33,33 @@ XGB_MODEL_PATH = "xgboost_improved.pkl"
 SCALER_PATH = "scaler.pkl"
 
 # -------------------- LOAD MODELS -------------------- #
-if os.path.exists(CNN_MODEL_PATH) and os.path.exists(LABEL_ENCODER_PATH):
-    cnn_pipe = WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH)
-else:
+# Use st.cache_resource for heavy model loading to speed up app reloading
+@st.cache_resource
+def load_cnn_pipeline():
+    if os.path.exists(CNN_MODEL_PATH) and os.path.exists(LABEL_ENCODER_PATH):
+        try:
+            return WaferCNNPipeline(CNN_MODEL_PATH, LABEL_ENCODER_PATH)
+        except Exception as e:
+            st.error(f"Error loading CNN Pipeline: {e}. Check if Focal Loss is correctly defined.")
+            return None
     st.warning("CNN model or label encoder not found.")
-    cnn_pipe = None
+    return None
 
-if os.path.exists(XGB_MODEL_PATH) and os.path.exists(SCALER_PATH):
-    xgb = joblib.load(XGB_MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-else:
+@st.cache_resource
+def load_xgb_models():
+    if os.path.exists(XGB_MODEL_PATH) and os.path.exists(SCALER_PATH):
+        try:
+            xgb_model = joblib.load(XGB_MODEL_PATH)
+            scaler_model = joblib.load(SCALER_PATH)
+            return xgb_model, scaler_model
+        except Exception as e:
+            st.error(f"Error loading XGBoost models: {e}.")
+            return None, None
     st.warning("XGBoost model or scaler not found.")
-    xgb = None
-    scaler = None
+    return None, None
+
+cnn_pipe = load_cnn_pipeline()
+xgb, scaler = load_xgb_models()
 
 # -------------------- DEFECT MAPPINGS -------------------- #
 mapping_type = {
@@ -64,21 +78,31 @@ def map_label(label):
 def map_wafer_to_rgb(wafer_map):
     if wafer_map is None or wafer_map.size == 0:
         return 50 * np.ones((10,10,3), dtype=np.uint8)
-    wafer_map = wafer_map.astype(np.int8)
+    # Ensure wafer map is integer type for indexing
+    wafer_map = wafer_map.astype(np.int8) 
     H, W = wafer_map.shape
-    rgb = 50 * np.ones((H, W, 3), dtype=np.uint8)
-    rgb[wafer_map==1] = [0,255,255]
-    rgb[wafer_map==2] = [255,0,0]
+    # Default to gray background (non-functional area)
+    rgb = 50 * np.ones((H, W, 3), dtype=np.uint8) 
+    # Functional die (value 1) - Cyan/Teal
+    rgb[wafer_map==1] = [0,255,255] 
+    # Defective die (value 2) - Red
+    rgb[wafer_map==2] = [255,0,0] 
     return rgb
 
 def prepare_pixel_features_for_xgb(wafer_map, required_size=1029, target_dim=(32,32)):
     if wafer_map is None or wafer_map.size == 0:
         return np.zeros(required_size)
+    
+    # Handle PIL Image input (from the updated Streamlit loop)
+    if isinstance(wafer_map, Image.Image):
+        wafer_map = np.array(wafer_map.convert('L'))
+        
     if wafer_map.ndim != 2:
         if wafer_map.ndim==3 and wafer_map.shape[2]==3:
             wafer_map = np.array(Image.fromarray(wafer_map,'RGB').convert('L'))
         else:
             return np.zeros(required_size)
+            
     wafer_img = Image.fromarray(wafer_map.astype(np.uint8))
     wafer_resized = wafer_img.resize(target_dim, Image.NEAREST)
     X_flat = np.array(wafer_resized).flatten()
@@ -104,14 +128,35 @@ with tabs[0]:
         if uploaded_files:
             results = []
             for file in uploaded_files:
-                wafer = None
+                wafer_data_for_display = None
+                wafer_for_cnn_predict = None # Initialize variable for pipeline input
+
+                # File handling and type conversion
                 if file.name.endswith(".npy"):
-                    wafer = np.load(file)
+                    wafer_data_for_display = np.load(file)
+                    # For CNN pipeline, convert NumPy array back to PIL image
+                    wafer_for_cnn_predict = Image.fromarray(wafer_data_for_display.astype(np.uint8))
                 else:
+                    # Load as PIL Image (required by pipeline)
                     img = Image.open(file).convert("L")
-                    wafer = np.array(img)
-                label, probs = cnn_pipe.predict(wafer)
-                results.append({"File":file.name,"Predicted_Label":label,"Probabilities":probs,"Wafer_Data":wafer})
+                    wafer_for_cnn_predict = img
+                    # Create NumPy array for display/storage
+                    wafer_data_for_display = np.array(img)
+                
+                # CRITICAL FIX: Pass the PIL Image object
+                if wafer_for_cnn_predict:
+                    try:
+                        label, probs = cnn_pipe.predict(wafer_for_cnn_predict)
+                        results.append({
+                            "File":file.name,
+                            "Predicted_Label":label,
+                            "Probabilities":probs,
+                            "Wafer_Data":wafer_data_for_display # NumPy array for display
+                        })
+                    except ValueError as e:
+                         st.error(f"Prediction failed for {file.name}. Ensure image format is correct. Error: {e}")
+
+
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
 
@@ -132,15 +177,20 @@ with tabs[0]:
                 st.session_state.cnn_index = 0
 
             r = st.session_state.cnn_results[idx]
+            # Wafer_Data is a NumPy array here, which is what map_wafer_to_rgb expects
             wafer_rgb = map_wafer_to_rgb(r['Wafer_Data'])
             st.image(wafer_rgb, width=200, caption=f"Wafer Map: {r['File']}")
-            st.markdown(f"**Predicted:** {r['Predicted_Label']}")
+            st.markdown(f"**Predicted:** <span style='color:#ff0000; font-size: 1.5em; font-weight: bold;'>{r['Predicted_Label']}</span>", unsafe_allow_html=True)
+            
             st.subheader("Prediction Probabilities")
+            
             probs = r['Probabilities']
             if isinstance(probs, dict):
                 top_probs = sorted(probs.items(), key=lambda x:x[1], reverse=True)
                 for label, prob in top_probs:
-                    st.progress(np.clip(prob, 0, 1))
+                    # Clip probability to [0, 1] for progress bar
+                    st.progress(np.clip(prob, 0, 1)) 
+                    # Use markdown for consistent display
                     st.markdown(f"**{label}**: {prob:.2f}")
 
     # --- XGBOOST MODEL --- #
@@ -150,16 +200,21 @@ with tabs[0]:
         if uploaded_files:
             results = []
             for file in uploaded_files:
-                wafer = None
+                wafer_input = None
                 if file.name.endswith(".npy"):
-                    wafer = np.load(file)
+                    wafer_input = np.load(file)
                 else:
-                    img = Image.open(file).convert("L")
-                    wafer = np.array(img)
-                X_feat = prepare_pixel_features_for_xgb(wafer).reshape(1,-1)
+                    # Use PIL Image for consistent feature extraction input
+                    wafer_input = Image.open(file).convert("L") 
+                
+                # Feature extraction and scaling
+                X_feat = prepare_pixel_features_for_xgb(wafer_input).reshape(1,-1)
                 X_scaled = scaler.transform(X_feat)
+                
+                # Prediction
                 pred_idx = int(xgb.predict(X_scaled)[0])
                 pred_label = inv_mapping.get(pred_idx,f"Unknown ({pred_idx})")
+                
                 results.append({"File":file.name,"Predicted_Label":pred_label,"Raw_Pred":pred_idx})
             st.session_state.xgb_results = results
             st.subheader("XGBoost Predictions (mapped to defect types):")
@@ -173,10 +228,11 @@ with tabs[1]:
         idx = st.session_state.cnn_index
         r = st.session_state.cnn_results[idx]
         st.markdown(f"### Analysis for Wafer: **{r['File']}**")
-        st.markdown(f"**Primary Prediction:** <span style='color:#00ffff'>{r['Predicted_Label']}</span>", unsafe_allow_html=True)
+        st.markdown(f"**Primary Prediction:** <span style='color:#ff0000; font-size: 1.5em; font-weight: bold;'>{r['Predicted_Label']}</span>", unsafe_allow_html=True)
         if isinstance(r['Probabilities'], dict):
             prob_df = pd.DataFrame({
-                'Defect Type': [map_label(k) for k in r['Probabilities'].keys()],
+                # Ensure the keys are converted to strings before creating the DataFrame
+                'Defect Type': list(r['Probabilities'].keys()), 
                 'Confidence': r['Probabilities'].values()
             }).sort_values(by='Confidence', ascending=False)
             st.subheader("Confidence Distribution Across Defect Classes")
@@ -189,8 +245,10 @@ with tabs[2]:
     st.header("About This Project")
     st.markdown("""
     This project detects **semiconductor wafer defects** using:
-    - **CNN** for image-based wafer maps
-    - **XGBoost** for feature-based wafer data
+    - **CNN** for image-based wafer maps (leveraging image patterns)
+    - **XGBoost** for feature-based wafer data (leveraging pixel statistics)
     - **Streamlit** for interactive dashboard deployment
+    
+    The **Focal Loss** function was used to train the CNN, which helps the model focus on hard-to-classify and less common defect types (like **Scratch** or **Cluster**), improving overall classification accuracy across all classes.
     """)
-    st.image("https://placehold.co/600x600/1e293b/f8fafc?text=Example+Wafer+Map", width=300)
+    st.image("https://placehold.co/600x400/1e293b/f8fafc?text=Example+Wafer+Defect+Map", width=300)
