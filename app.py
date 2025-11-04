@@ -61,15 +61,15 @@ else:
 
 # Standard Defect ID to Label Mapping for Wafer Inspection datasets
 DEFECT_MAP = {
-    '0': 'No Defect',
-    '1': 'Center',
-    '2': 'Donut',
-    '3': 'Edge-Ring',
-    '4': 'Scratch',
-    '5': 'Near-full',
-    '6': 'Random',
-    '7': 'Local (Loc)', # '7' is typically 'Local'
-    '8': 'Cluster',
+    0: 'No Defect',
+    1: 'Center',
+    2: 'Donut',
+    3: 'Edge-Ring',
+    4: 'Scratch',
+    5: 'Near-full',
+    6: 'Random',
+    7: 'Local (Loc)', 
+    8: 'Cluster',
     '0 0': 'No Defect' # Used by CNN pipeline for no defect
 }
 
@@ -77,7 +77,13 @@ def map_label(label):
     """
     Maps numerical or '0 0' labels to human-readable defect names using DEFECT_MAP.
     """
-    return DEFECT_MAP.get(str(label), f"Unknown Defect ID: {label}")
+    # Ensure label is int if possible for lookup
+    try:
+        label_key = int(label)
+    except ValueError:
+        label_key = str(label)
+        
+    return DEFECT_MAP.get(label_key, f"Unknown Defect ID: {label}")
 
 def map_wafer_to_rgb(wafer_map):
     """
@@ -97,72 +103,47 @@ def map_wafer_to_rgb(wafer_map):
     
     return rgb_image
 
-# --- FEATURE EXTRACTION FUNCTION (KEPT FOR REFERENCE) ---
-def extract_features_from_wafer(wafer_map):
+# --- PIXEL PREPARATION FUNCTION (UPDATED FOR 32x32 RESIZE) ---
+def prepare_pixel_features_for_xgb(wafer_map, required_size=1029, target_dim=(32, 32)):
     """
-    Extracts 10 numerical features from the 2D wafer map for the XGBoost model.
+    Prepares the wafer map for the XGBoost model by resizing, flattening, and padding 
+    to exactly match the expected feature count (1029) indicated by the loaded scaler.
+    
+    Based on the training script (X_combined), this assumes the input is:
+    (32x32 pixels flattened) + 5 additional features = 1029 features.
     """
     if wafer_map is None or wafer_map.size == 0:
-        return np.zeros(10)
+        return np.zeros(required_size)
 
-    total_die = np.sum(wafer_map > 0)
-    if total_die == 0:
-        return np.zeros(10)
+    # 1. Ensure map is 2D and prepare for resizing
+    if wafer_map.ndim != 2:
+        if wafer_map.ndim == 3 and wafer_map.shape[2] == 3:
+            # Convert color image to grayscale/monochrome
+            wafer_map = Image.fromarray(wafer_map, 'RGB').convert('L')
+            wafer_map = np.array(wafer_map)
+        else:
+            if wafer_map.ndim > 2 and wafer_map.size == target_dim[0] * target_dim[1]:
+                 wafer_map = wafer_map.reshape(target_dim)
+            else:
+                 return np.zeros(required_size) 
 
-    defect_die = np.sum(wafer_map == 2)
-    defect_percent = defect_die / total_die
-
-    functional_map = (wafer_map == 1).astype(np.float32)
-    defect_map = (wafer_map == 2).astype(np.float32)
+    # 2. Resize the wafer map to the target dimension (32x32)
+    wafer_img = Image.fromarray(wafer_map.astype(np.uint8))
+    # Use NEAREST neighbor resampling for categorical data (0, 1, 2)
+    wafer_resized = wafer_img.resize(target_dim, Image.NEAREST) 
+    wafer_array = np.array(wafer_resized)
     
-    mean_func = np.mean(functional_map)
-    std_func = np.std(functional_map)
-    mean_defect = np.mean(defect_map)
-
-    rows, cols = np.where(wafer_map > 0)
-    if len(rows) > 1:
-        height = np.max(rows) - np.min(rows) + 1
-        width = np.max(cols) - np.min(cols) + 1
-        aspect_ratio = width / height if height > 0 else 0
-    else:
-        aspect_ratio = 0
-
-    coverage = total_die / wafer_map.size
-    
-    if defect_die > 0:
-        center_of_mass = ndimage.center_of_mass(defect_map)
-        normalized_row_center = center_of_mass[0] / wafer_map.shape[0] if wafer_map.shape[0] > 0 else 0
-    else:
-        normalized_row_center = 0
-
-    moment_m00 = defect_die 
-
-    features = np.array([
-        total_die, defect_die, defect_percent, mean_func, std_func,
-        mean_defect, aspect_ratio, coverage, normalized_row_center, moment_m00
-    ])
-    return features
-
-# --- NEW PIXEL PREPARATION FUNCTION FOR MISMATCHED MODELS ---
-def prepare_pixel_features_for_xgb(wafer_map, required_size=1029):
-    """
-    Prepares the wafer map for the XGBoost model by flattening and resizing/padding 
-    to match the expected feature count (1029) indicated by the loaded scaler.
-    This assumes the model was trained on raw pixel data.
-    """
-    # 1. Ensure map is 2D and flatten
-    X_flat = wafer_map.flatten()
+    # 3. Flatten the array (32 * 32 = 1024 features)
+    X_flat = wafer_array.flatten()
     current_size = len(X_flat)
 
-    if current_size == required_size:
-        # Perfect match
-        return X_flat
-    elif current_size < required_size:
-        # Pad with zeros to meet the required size
+    # 4. Pad or Truncate to match the required 1029 features
+    if current_size < required_size:
+        # Pad with 5 zeros to meet the required 1029 features (1024 + 5 = 1029)
         padding_needed = required_size - current_size
         return np.pad(X_flat, (0, padding_needed), 'constant', constant_values=0)
     else:
-        # Truncate if larger (unlikely for fixed-size training)
+        # Truncate if larger (should not happen with 32x32 resize)
         return X_flat[:required_size]
 
 
@@ -237,11 +218,9 @@ with tabs[0]:
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         # --- WARNING ABOUT FEATURE MISMATCH ---
         st.warning("""
-        **XGBoost Model Mismatch Detected:** The loaded scaler (`scaler.pkl`) requires **1029 features**, not the 10 engineered features. 
-        The prediction logic has been temporarily modified to use **raw pixel data** (flattened image) 
-        to match the loaded model's training data structure.
+        ⚠️ **XGBoost Model Input Synchronization:** The app now enforces resizing of all uploaded images to **32x32 pixels** and pads them to **1029 features** to match the training input of the loaded model and scaler.
         """)
-        st.subheader("Upload wafer image/feature arrays to predict (Requires 1029 features)")
+        st.subheader("Upload wafer image/feature arrays to predict (Input is resized to 32x32)")
         uploaded_files = st.file_uploader(
             "Upload feature arrays (.npy) or images (.png, .jpg, .jpeg)", 
             type=["npy", "png", "jpg", "jpeg"], 
@@ -256,9 +235,12 @@ with tabs[0]:
                 wafer = None
                 
                 if file.name.endswith(".npy"):
-                    # Case 1: Raw NumPy array uploaded. Assume it's an image or a flattened feature array
-                    wafer = np.load(file)
-                    
+                    # Case 1: Raw NumPy array uploaded. 
+                    try:
+                        wafer = np.load(file)
+                    except Exception as e:
+                        st.error(f"Error loading NumPy file {file.name}: {e}")
+                        continue
                 else:
                     # Case 2: Image file uploaded 
                     try:
@@ -292,7 +274,7 @@ with tabs[0]:
                     st.error(f"Model/Scaler error for {file.name}: {e}")
             
             st.session_state.xgb_results = results
-            st.subheader("XGBoost Predictions (Using Raw Pixels):")
+            st.subheader("XGBoost Predictions (Input Resized to 32x32 Pixels):")
             for r in results:
                 st.markdown(f"**{r['File']} → {r['Predicted_Label']}**")
 
