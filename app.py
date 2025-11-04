@@ -57,6 +57,32 @@ else:
 def map_label(label):
     return "No Defect" if label == "0 0" else label
 
+def map_wafer_to_rgb(wafer_map):
+    """
+    Maps discrete wafer map values (0, 1, 2) to distinct RGB colors 
+    for high-contrast visualization in the dashboard.
+    0: Background (Black)
+    1: Functional Die (Light Gray)
+    2: Defect Die (Red)
+    """
+    if wafer_map is None or wafer_map.size == 0:
+        return np.zeros((10, 10, 3), dtype=np.uint8)
+
+    # Ensure the wafer map contains discrete integers
+    wafer_map = wafer_map.astype(np.int8)
+
+    H, W = wafer_map.shape
+    # Initialize a black canvas (0=Background)
+    rgb_image = np.zeros((H, W, 3), dtype=np.uint8)
+
+    # 1 (Good Die) -> Light Gray for visibility
+    rgb_image[wafer_map == 1] = [200, 200, 200]
+
+    # 2 (Defect Die) -> Red for high contrast (Error/Defect)
+    rgb_image[wafer_map == 2] = [255, 0, 0]
+    
+    return rgb_image
+
 # -------------------- TABS -------------------- #
 tabs = st.tabs(["Predict Defects", "Model Insights", "About Project"])
 
@@ -111,16 +137,10 @@ with tabs[0]:
                 wafer = np.load(wafer_file)
 
                 # --- FIX 2 & Robustness Update ---
-                # Check max value for robust scaling and convert to 0-255 uint8 for optimal display.
-                wafer_max = wafer.max()
-                if wafer_max > 0:
-                    # Scale to 0-255 using the maximum non-zero value
-                    wafer_display = (wafer / wafer_max * 255).astype(np.uint8)
-                else:
-                    # If max is 0 (all black map), convert to uint8 without scaling
-                    wafer_display = wafer.astype(np.uint8)
+                # Use the new color mapping function for display
+                wafer_rgb_display = map_wafer_to_rgb(wafer)
                 
-                st.image(wafer_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 2D array
+                st.image(wafer_rgb_display, width=200, caption=f"Wafer Map: {r['File']}") # Display 3D RGB array
                 
             st.markdown(f"**Predicted:** {map_label(r['Predicted_Label'])}")
             
