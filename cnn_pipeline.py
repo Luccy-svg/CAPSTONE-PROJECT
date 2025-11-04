@@ -1,7 +1,7 @@
 
 import numpy as np
 import joblib
-from tensorflow.keras.models import load_model
+from keras.models import load_model
 from PIL import Image
 
 class WaferCNNPipeline:
@@ -18,20 +18,22 @@ class WaferCNNPipeline:
         """
         Accepts NumPy array or PIL Image, returns processed image tensor.
         """
-        # Convert PIL image to NumPy array
+        # Convert PIL image to NumPy array and resize
         if isinstance(wafer_image, Image.Image):
             wafer_image = wafer_image.convert("L").resize(self.image_size)
             wafer_image = np.array(wafer_image)
         elif isinstance(wafer_image, np.ndarray):
+            # Resize if not the target shape
             if wafer_image.shape != self.image_size:
                 wafer_image = np.array(Image.fromarray(wafer_image).resize(self.image_size))
         else:
             raise ValueError("Input must be a NumPy array or PIL Image")
 
-        # Ensure 2D
+        # Ensure 2D grayscale
         if wafer_image.ndim != 2:
             wafer_image = wafer_image[:, :, 0]
 
+        # Normalize and reshape for CNN
         wafer_image = wafer_image / 255.0
         wafer_image = wafer_image.reshape(1, self.image_size[0], self.image_size[1], 1)
         return wafer_image
@@ -39,10 +41,17 @@ class WaferCNNPipeline:
     def predict(self, wafer_image):
         """
         Returns predicted label and probabilities dictionary.
+        Handles unseen predicted classes gracefully.
         """
         x = self.preprocess(wafer_image)
-        preds = self.model.predict(x, verbose=0)[0]  # probabilities
+        preds = self.model.predict(x, verbose=0)[0]  # array of probabilities
         pred_class = np.argmax(preds)
-        label = self.le.inverse_transform([pred_class])[0]
+
+        # Handle unseen classes
+        if pred_class in range(len(self.le.classes_)):
+            label = self.le.inverse_transform([pred_class])[0]
+        else:
+            label = f"Unknown ({pred_class})"
+
         probs = dict(zip(self.le.classes_, preds))
         return label, probs
