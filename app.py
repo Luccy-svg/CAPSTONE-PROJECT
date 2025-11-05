@@ -73,8 +73,8 @@ def map_wafer_to_rgb(wafer_map):
     wafer_map = wafer_map.astype(np.int8)
     H, W = wafer_map.shape
     rgb = 50 * np.ones((H, W, 3), dtype=np.uint8)
-    rgb[wafer_map==1] = [0,255,255] # Functional die
-    rgb[wafer_map==2] = [255,0,0]   # Defective die
+    rgb[wafer_map==1] = [0,255,255]  # Functional die
+    rgb[wafer_map==2] = [255,0,0]    # Defective die
     return rgb
 
 def prepare_pixel_features_for_xgb(wafer_map, required_size=1029, target_dim=(32,32)):
@@ -103,18 +103,15 @@ with tabs[0]:
     # --- CNN MODEL --- #
     if model_choice == "CNN (Image-Based)" and cnn_pipe:
         st.subheader("Upload wafer images (.npy or .png/.jpg/.jpeg)")
-        uploaded_files_cnn = st.file_uploader(
-            "Upload wafer maps (CNN)",
+        uploaded_files = st.file_uploader(
+            "Upload wafer maps",
             type=["png","jpg","jpeg","npy"],
-            accept_multiple_files=True,
-            key="cnn_upload"
+            accept_multiple_files=True
         )
 
-        if uploaded_files_cnn:
+        if uploaded_files:
             results = []
-            for file in uploaded_files_cnn:
-                wafer_data = None
-                wafer_img = None
+            for file in uploaded_files:
                 try:
                     if file.name.endswith(".npy"):
                         wafer_data = np.load(file)
@@ -122,12 +119,9 @@ with tabs[0]:
                     else:
                         wafer_img = Image.open(file).convert("L")
                         wafer_data = np.array(wafer_img)
-                except Exception as e:
-                    st.error(f"Failed to load {file.name}: {e}")
-                    continue
 
-                try:
                     label, probs = cnn_pipe.predict(wafer_img)
+
                     results.append({
                         "File": file.name,
                         "Predicted_Label": label,
@@ -135,62 +129,69 @@ with tabs[0]:
                         "Wafer_Data": wafer_data
                     })
                 except Exception as e:
-                    st.error(f"Prediction failed for {file.name}: {e}")
+                    st.error(f"Failed for {file.name}: {e}")
 
             st.session_state.cnn_results = results
             st.session_state.cnn_index = 0
 
-        # Display uploaded images and predictions
-        if st.session_state.cnn_results:
+        num_results = len(st.session_state.cnn_results)
+        if num_results > 0:
             idx = 0
-            num_results = len(st.session_state.cnn_results)
             if num_results > 1:
                 idx_display = st.slider(
-                    f"Select image (1-{num_results})",
-                    min_value=1, max_value=num_results, value=1
+                    f"Select image to view (1-{num_results})",
+                    min_value=1,
+                    max_value=num_results,
+                    value=1
                 )
                 idx = idx_display - 1
 
             st.session_state.cnn_index = idx
             r = st.session_state.cnn_results[idx]
 
-            st.image(map_wafer_to_rgb(r['Wafer_Data']),
-                     width=200,
-                     caption=f"File {idx+1} of {num_results}: {r['File']}")
-            st.markdown(f"**Predicted:** <span style='color:#ff0000;'>{r['Predicted_Label']}</span>",
-                        unsafe_allow_html=True)
+            wafer_rgb = map_wafer_to_rgb(r['Wafer_Data'])
+            st.image(
+                wafer_rgb,
+                width=200,
+                caption=f"File {idx+1} of {num_results}: {r['File']}"
+            )
+
+            st.markdown(
+                f"**Predicted:** <span style='color:#ff0000;'>{r['Predicted_Label']}</span>",
+                unsafe_allow_html=True
+            )
+
             st.subheader("Prediction Probabilities")
             for label, prob in sorted(r['Probabilities'].items(), key=lambda x:x[1], reverse=True):
                 st.progress(np.clip(prob,0,1))
                 st.markdown(f"**{label}**: {prob:.2f}")
+        else:
+            st.warning("No images uploaded yet. Upload images to see predictions.")
 
     # --- XGBOOST MODEL --- #
     elif model_choice == "XGBoost (Feature-Based)" and xgb:
         st.subheader("Upload wafer images or .npy feature arrays")
-        uploaded_files_xgb = st.file_uploader(
-            "Upload wafer maps (XGBoost)",
-            type=["png","jpg","jpeg","npy"],
-            accept_multiple_files=True,
-            key="xgb_upload"
+        uploaded_files = st.file_uploader(
+            "Upload wafer maps",
+            type=["npy","png","jpg","jpeg"],
+            accept_multiple_files=True
         )
-        if uploaded_files_xgb:
+        if uploaded_files:
             results = []
-            for file in uploaded_files_xgb:
-                wafer_input = None
+            for file in uploaded_files:
                 try:
                     if file.name.endswith(".npy"):
                         wafer_input = np.load(file)
                     else:
                         wafer_input = Image.open(file).convert("L")
-                except Exception as e:
-                    st.error(f"Failed to load {file.name}: {e}")
-                    continue
 
-                X_feat = prepare_pixel_features_for_xgb(wafer_input).reshape(1,-1)
-                X_scaled = scaler.transform(X_feat)
-                pred_idx = int(xgb.predict(X_scaled)[0])
-                pred_label = inv_mapping.get(pred_idx,f"Unknown ({pred_idx})")
-                results.append({"File":file.name,"Predicted_Label":pred_label,"Raw_Pred":pred_idx})
+                    X_feat = prepare_pixel_features_for_xgb(wafer_input).reshape(1,-1)
+                    X_scaled = scaler.transform(X_feat)
+                    pred_idx = int(xgb.predict(X_scaled)[0])
+                    pred_label = inv_mapping.get(pred_idx, f"Unknown ({pred_idx})")
+                    results.append({"File": file.name, "Predicted_Label": pred_label, "Raw_Pred": pred_idx})
+                except Exception as e:
+                    st.error(f"Failed for {file.name}: {e}")
 
             st.session_state.xgb_results = results
             st.subheader("XGBoost Predictions:")
@@ -204,8 +205,7 @@ with tabs[1]:
         idx = st.session_state.cnn_index
         r = st.session_state.cnn_results[idx]
         st.markdown(f"### Analysis for Wafer: **{r['File']}**")
-        st.markdown(f"**Primary Prediction:** <span style='color:#ff0000;'>{r['Predicted_Label']}</span>",
-                    unsafe_allow_html=True)
+        st.markdown(f"**Primary Prediction:** <span style='color:#ff0000;'>{r['Predicted_Label']}</span>", unsafe_allow_html=True)
         if isinstance(r['Probabilities'], dict):
             prob_df = pd.DataFrame({
                 'Defect Type': list(r['Probabilities'].keys()), 
