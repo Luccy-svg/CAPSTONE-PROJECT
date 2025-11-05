@@ -58,11 +58,11 @@ for f in uploaded_files:
     wafer_images.append((f.name, img))
 
 if len(wafer_images) == 0:
-    st.warning("⚠️ No images found or uploaded!")
+    st.warning("🔩 No images found or uploaded!")
     st.stop()
 
 # -------------------- SIDEBAR -------------------- #
-st.sidebar.title("🎛️ Controls")
+st.sidebar.title("🔧 Controls")
 view_mode = st.sidebar.radio("Select View Mode", ["Slider View", "Batch View"])
 
 # -------------------- SLIDER VIEW -------------------- #
@@ -86,7 +86,7 @@ if view_mode == "Slider View":
         st.write(f"{cls}: {p:.2f}")
 
     # Insights
-    st.subheader("🧠 Insights")
+    st.subheader("Insights")
     st.write(f"- Highest probability: **{top5[0][1]:.2f} ({top5[0][0]})**")
     low_prob_classes = [k for k, v in probs.items() if v < 0.05]
     st.write(f"- Low probability (<0.05) classes: {low_prob_classes}")
@@ -125,7 +125,7 @@ df_results = pd.DataFrame(all_results)
 
 # -------------------- DOWNLOAD BUTTON -------------------- #
 st.markdown("---")
-st.subheader("📥 Download Predictions")
+st.subheader("Download Predictions")
 csv = df_results.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="🎯 Download CSV",
@@ -136,7 +136,7 @@ st.download_button(
 
 # -------------------- ABOUT -------------------- #
 st.sidebar.markdown("---")
-st.sidebar.header("ℹ️ About")
+st.sidebar.header(" About")
 st.sidebar.info(
     """
     **ChipSleuth – Semiconductor Wafer Defect Detection**
