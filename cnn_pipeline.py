@@ -1,9 +1,9 @@
 
+import tensorflow as tf
 import numpy as np
 import joblib
 from PIL import Image
 from tensorflow.keras.models import load_model
-import tensorflow as tf
 
 # -------------------- FOCAL LOSS -------------------- #
 def focal_loss(gamma=2., alpha=0.25):
@@ -17,9 +17,12 @@ def focal_loss(gamma=2., alpha=0.25):
 
 # -------------------- CNN PIPELINE -------------------- #
 class WaferCNNPipeline:
-    """Handles preprocessing, prediction, and class weight adjustment for Keras 3 CNN"""
-    
-    def __init__(self, model_path, label_encoder_path, image_size=(32,32), class_weights=None):
+    """
+    CNN pipeline for Keras 3:
+    - Handles preprocessing
+    - Prediction
+    """
+    def __init__(self, model_path: str, label_encoder_path: str, image_size=(32,32), class_weights=None):
         self.model = load_model(
             model_path,
             custom_objects={'focal_loss_fixed': focal_loss()},
@@ -30,7 +33,9 @@ class WaferCNNPipeline:
         self.class_weights = class_weights
 
     def preprocess(self, wafer_image):
-        """Convert input to CNN-ready array [1,H,W,1], normalized 0-1"""
+        """
+        Convert PIL Image or numpy array to CNN-ready array [1,H,W,1], normalized 0-1
+        """
         if isinstance(wafer_image, np.ndarray):
             arr = wafer_image.astype(np.float32)
         elif isinstance(wafer_image, Image.Image):
@@ -38,27 +43,29 @@ class WaferCNNPipeline:
             arr = np.array(wafer_image, dtype=np.float32)
         else:
             raise ValueError("Input must be PIL Image or numpy array.")
-        
-        # Normalize
+
+        # Normalize to 0-1
         if arr.max() > 1.0:
             arr /= 255.0
 
         return arr.reshape(1, self.image_size[0], self.image_size[1], 1)
 
     def predict(self, wafer_image):
-        """Returns predicted label and class probabilities"""
+        """
+        Returns predicted label and probabilities dictionary
+        """
         x = self.preprocess(wafer_image)
         preds = self.model.predict(x, verbose=0)[0]
 
-        # Adjust for class weights if provided
+        # Apply class weights if provided
         if self.class_weights:
             weight_vector = np.array([self.class_weights.get(i, 1.0) for i in range(len(preds))])
-            preds *= weight_vector
-            preds /= preds.sum()
+            preds = preds * weight_vector
+            preds = preds / preds.sum()
 
         pred_idx = int(np.argmax(preds))
         label = self.le.inverse_transform([pred_idx])[0]
 
-        # Probabilities dict
+        # Probabilities dictionary
         probs = {self.le.inverse_transform([i])[0]: float(preds[i]) for i in range(len(self.le.classes_))}
         return label, probs
