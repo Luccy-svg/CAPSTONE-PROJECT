@@ -30,7 +30,7 @@ cnn_pipeline = WaferCNNPipeline(
 )
 
 # -------------------- LOAD IMAGES FROM FOLDER -------------------- #
-image_folder = "image_data"
+image_folder = "image_data" if os.path.exists("image_data") else "demo_images"
 wafer_images = []
 
 for f in os.listdir(image_folder):
