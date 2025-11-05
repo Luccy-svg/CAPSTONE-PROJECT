@@ -97,6 +97,22 @@ Each wafer map image represents a semiconductor wafer subdivided into multiple d
 
 Common defect types include:
 
+Common defect types include:
+
+|Percentage |	Pattern Type |	Observation |
+|:__________|:______________|:__________|
+| 78.69 |	0 0 |	Placeholder Category |
+| 18.18 |	None |	Wafer with no defect |
+| 1.17 |	Edge-Ring |	Moderate Frequency |
+| 0.64 |	Edge-Loc |	Rare defect type |
+| 0.51 |	Center |	Central pattern defects |
+| 0.45 |	Loc |	Mislabeled variant |
+| 0.16 |	Scratch |	Very rare mechanical defect |
+| 0.11 |	Random |	Randomly distributed defect
+| 0.07 |	Donut |	Circular defect pattern |
+| 0.02 |	Near-full |	Few samples |
+
+
 ## 2.3 Data structure and attributes.
 
 Each record contains:
