@@ -233,7 +233,7 @@ However, rare defects like Scratch and Loc remain difficult to classify, suggest
 |:-------|:------------|:------------|
 | Accuracy |	0.62 |	0.80 |	0.79 |
 | Macro F1-score |	0.50 |	0.61 |	0.60 |
-|Weighted F1-score |	0.66 |	0.78 |	0.77 |
+| Weighted F1-score |	0.66 |	0.78 |	0.77 |
 
 Random Forest(80% accuracy) slightly outperforms XGBoost overall, while both tree-based models significantly outperform Logistic Regression.
 
