@@ -7,7 +7,7 @@ from tensorflow.keras.models import load_model
 
 # -------------------- FOCAL LOSS -------------------- #
 def focal_loss(gamma=2., alpha=0.25):
-    """Focal loss function for loading CNN with custom loss."""
+    """Focal loss used during training."""
     def focal_loss_fixed(y_true, y_pred):
         y_pred = tf.clip_by_value(y_pred, 1e-8, 1. - 1e-8)
         cross_entropy = -y_true * tf.math.log(y_pred)
@@ -16,10 +16,15 @@ def focal_loss(gamma=2., alpha=0.25):
         return tf.reduce_sum(loss, axis=1)
     return focal_loss_fixed
 
-# -------------------- Wafer CNN Pipeline -------------------- #
+# -------------------- CNN PIPELINE -------------------- #
 class WaferCNNPipeline:
-    def __init__(self, model_path: str, label_encoder_path: str, image_size=(32,32)):
-        # Load model with custom loss
+    """
+    CNN pipeline for Keras 3:
+    - Handles preprocessing
+    - Prediction
+    - Class weight adjustment
+    """
+    def __init__(self, model_path: str, label_encoder_path: str, image_size=(32,32), class_weights=None):
         self.model = load_model(
             model_path,
             custom_objects={'focal_loss_fixed': focal_loss()},
@@ -27,49 +32,46 @@ class WaferCNNPipeline:
         )
         self.le = joblib.load(label_encoder_path)
         self.image_size = image_size
+        self.class_weights = class_weights  # Optional class weight dict
 
-    def preprocess(self, wafer_image) -> np.ndarray:
-        """
-        Preprocess wafer image (PIL or NumPy array) for CNN input.
-        Converts any image to 32x32 grayscale with 0,1,2 mapping.
-        """
-        # Handle NumPy arrays
-        if isinstance(wafer_image, np.ndarray):
-            wafer_image = Image.fromarray(wafer_image.astype(np.uint8))
-
+    def preprocess(self, wafer_image: Image.Image) -> np.ndarray:
+        """Convert PIL Image to CNN-ready array [1,H,W,1] with values 0,1,2."""
         if not isinstance(wafer_image, Image.Image):
-            raise ValueError("Input must be PIL Image or NumPy array.")
-
-        # Convert to grayscale and resize
+            raise ValueError("Input must be a PIL Image.")
         wafer_image = wafer_image.convert("L").resize(self.image_size, Image.NEAREST)
-        wafer_array = np.array(wafer_image, dtype=np.float32)
+        arr = np.array(wafer_image, dtype=np.float32)
 
-        # Map pixel values to 0,1,2 (background / minor defect / defect)
-        wafer_array[wafer_array > 128] = 2
-        wafer_array[(wafer_array > 0) & (wafer_array <= 128)] = 1
-        wafer_array[wafer_array == 0] = 0
+        # Rescale to 0,1,2
+        max_val = arr.max()
+        if max_val > 2.0:
+            unique_non_zero = np.unique(arr[arr>0])
+            if len(unique_non_zero) >= 2:
+                sorted_unique = np.sort(unique_non_zero)
+                split_point = (sorted_unique[-1] + sorted_unique[-2]) / 2.0
+                arr[arr>split_point] = 2.0
+                arr[(arr>0) & (arr<=split_point)] = 1.0
+            elif len(unique_non_zero) == 1:
+                arr[arr>0] = 1.0
+        return arr.reshape(1, self.image_size[0], self.image_size[1], 1)
 
-        # Reshape for CNN: [1, H, W, 1]
-        wafer_array = wafer_array.reshape(1, self.image_size[0], self.image_size[1], 1)
-        return wafer_array
-
-    def predict(self, wafer_image):
+    def predict(self, wafer_image: Image.Image):
         """
-        Returns predicted label and probabilities dictionary.
-        Handles alignment with label encoder.
+        Returns:
+        - predicted label
+        - probabilities dict adjusted with class weights if provided
         """
         x = self.preprocess(wafer_image)
         preds = self.model.predict(x, verbose=0)[0]
 
-        # Predicted class
-        pred_class = int(np.argmax(preds))
-        if pred_class < len(self.le.classes_):
-            label = self.le.inverse_transform([pred_class])[0]
-        else:
-            # Safety fallback
-            label = self.le.classes_[np.argmax(preds[:len(self.le.classes_)])]
+        # Apply class weights if provided
+        if self.class_weights:
+            weight_vector = np.array([self.class_weights.get(i, 1.0) for i in range(len(preds))])
+            preds = preds * weight_vector
+            preds = preds / preds.sum()  # Re-normalize
 
-        # Probabilities dictionary
-        probs = {self.le.inverse_transform([i])[0]: float(preds[i]) 
-                 for i in range(len(self.le.classes_))}
+        pred_idx = int(np.argmax(preds))
+        label = self.le.inverse_transform([pred_idx])[0]
+
+        # Probabilities dict
+        probs = {self.le.inverse_transform([i])[0]: float(preds[i]) for i in range(len(self.le.classes_))}
         return label, probs
