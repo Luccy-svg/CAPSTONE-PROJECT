@@ -210,3 +210,5 @@ random_forest_improved.pkl
 # .gitignore
 cnn_model.h5*.keras
 *
+generate_demo_data.py
+demo_data/
