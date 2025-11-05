@@ -13,7 +13,6 @@ import joblib
 import pandas as pd
 from cnn_pipeline import WaferCNNPipeline 
 
-print("✅ Running updated app.py from virtual environment")
 
 # -------------------- STREAMLIT CONFIG -------------------- #
 st.set_page_config(
