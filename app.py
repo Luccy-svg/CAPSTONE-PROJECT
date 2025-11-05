@@ -30,9 +30,13 @@ cnn_pipeline = WaferCNNPipeline(
 )
 
 # -------------------- LOAD IMAGES FROM FOLDER -------------------- #
-image_folder = "image_data" if os.path.exists("image_data") else "demo_images"
-wafer_images = []
+image_folder = "image_data"  # local folder (ignored in .gitignore)
 
+# fallback for Streamlit Cloud if local folder missing
+if not os.path.exists(image_folder):
+    image_folder = "demo_images"
+
+wafer_images = []
 for f in os.listdir(image_folder):
     if f.lower().endswith((".jpg", ".jpeg", ".png")):
         img = Image.open(os.path.join(image_folder, f))
@@ -44,7 +48,7 @@ for f in os.listdir(image_folder):
 
 # -------------------- UPLOAD NEW IMAGES -------------------- #
 uploaded_files = st.sidebar.file_uploader(
-    "📥 Upload your wafer images",
+    "Upload your wafer images",
     type=["jpg", "jpeg", "png", "npy"],
     accept_multiple_files=True
 )
