@@ -30,7 +30,7 @@ cnn_pipeline = WaferCNNPipeline(
 )
 
 # -------------------- LOAD IMAGES FROM FOLDER -------------------- #
-image_folder = "image_data"  # folder with .jpg, .jpeg, .png, .npy
+image_folder = "image_data"
 wafer_images = []
 
 for f in os.listdir(image_folder):
@@ -58,7 +58,7 @@ for f in uploaded_files:
     wafer_images.append((f.name, img))
 
 if len(wafer_images) == 0:
-    st.warning(" No images found or uploaded!")
+    st.warning("⚠️ No images found or uploaded!")
     st.stop()
 
 # -------------------- SIDEBAR -------------------- #
@@ -71,7 +71,8 @@ if view_mode == "Slider View":
     idx = st.slider("Select Wafer Index", 0, len(wafer_images)-1, 0)
     img_name, wafer_img = wafer_images[idx]
 
-    st.image(wafer_img, use_container_width=True, caption=img_name)
+    # Slightly smaller display
+    st.image(wafer_img, width=500, caption=img_name)
 
     # Prediction
     label, probs = cnn_pipeline.predict(wafer_img)
@@ -85,7 +86,7 @@ if view_mode == "Slider View":
         st.write(f"{cls}: {p:.2f}")
 
     # Insights
-    st.subheader(" Insights")
+    st.subheader("🧠 Insights")
     st.write(f"- Highest probability: **{top5[0][1]:.2f} ({top5[0][0]})**")
     low_prob_classes = [k for k, v in probs.items() if v < 0.05]
     st.write(f"- Low probability (<0.05) classes: {low_prob_classes}")
@@ -102,7 +103,7 @@ else:
             wafer_images[start_idx:start_idx + batch_size]
         ):
             col = cols[col_idx]
-            col.image(wafer_img, use_container_width=True, caption=img_name)
+            col.image(wafer_img, width='stretch', caption=img_name)
             label, probs = cnn_pipeline.predict(wafer_img)
             top5 = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:5]
             col.markdown(f"**Predicted:** {top5[0][0]} ({top5[0][1]:.2f})")
@@ -135,7 +136,7 @@ st.download_button(
 
 # -------------------- ABOUT -------------------- #
 st.sidebar.markdown("---")
-st.sidebar.header(" About")
+st.sidebar.header("ℹ️ About")
 st.sidebar.info(
     """
     **ChipSleuth – Semiconductor Wafer Defect Detection**
