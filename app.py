@@ -23,84 +23,60 @@ st.set_page_config(
 st.title("ChipSleuth – Wafer Defect Prediction")
 
 # -------------------- LOAD MODEL -------------------- #
-cnn_pipeline = WaferCNNPipeline(
-    model_path="cnn_model.keras",
-    label_encoder_path="label_encoder.pkl",
-    class_weights=None
-)
+model_path = "cnn_model.keras"
+le_path = "label_encoder.pkl"
+pipeline = WaferCNNPipeline(model_path, le_path)
 
 # -------------------- LOAD IMAGES -------------------- #
-image_folder = "image_data"  # folder with .jpg, .jpeg, .png, .npy
+image_folder = "image_data"  # Folder with .jpg, .jpeg, .png, .npy
+image_files = [f for f in os.listdir(image_folder) if f.lower().endswith(('.png','.jpg','.jpeg','.npy'))]
 wafer_images = []
 
-for f in os.listdir(image_folder):
-    if f.lower().endswith((".jpg", ".jpeg", ".png")):
-        img = Image.open(os.path.join(image_folder, f))
-        wafer_images.append((f, img))
-    elif f.lower().endswith(".npy"):
-        arr = np.load(os.path.join(image_folder, f))
-        img = Image.fromarray(arr.astype(np.uint8))
-        wafer_images.append((f, img))
+for fname in image_files:
+    path = os.path.join(image_folder, fname)
+    if fname.lower().endswith('.npy'):
+        img = np.load(path)
+    else:
+        img = Image.open(path)
+    wafer_images.append((fname, img))
 
-if len(wafer_images) == 0:
-    st.warning("No images found in folder!")
+if not wafer_images:
+    st.warning("No wafer images found in the folder.")
     st.stop()
 
-# -------------------- SIDEBAR -------------------- #
-st.sidebar.title("Controls")
-view_mode = st.sidebar.radio("Select View Mode", ["Slider View", "Batch View"])
+# -------------------- SLIDER -------------------- #
+idx = st.slider("Select Wafer Image", 0, len(wafer_images)-1, 0)
+img_name, wafer_img = wafer_images[idx]
 
-# -------------------- SLIDER VIEW -------------------- #
-if view_mode == "Slider View":
-    st.header("🖼️ Single Wafer View")
-    idx = st.slider("Select Wafer Index", 0, len(wafer_images)-1, 0)
-    img_name, wafer_img = wafer_images[idx]
-
-    st.image(wafer_img, use_column_width=True, caption=img_name)
-
-    # Prediction
-    label, probs = cnn_pipeline.predict(wafer_img)
-    st.subheader("Predicted Failure Type")
-    st.write(f"**{label}**")
-    st.subheader("Prediction Probabilities")
-    for k, v in probs.items():
-        st.write(f"{k}: {v:.2f}")
-
-    # Insights (example)
-    st.subheader("Insights")
-    st.write(f"- Highest probability: {max(probs.values()):.2f}")
-    st.write(f"- Classes with low probability: {[k for k,v in probs.items() if v<0.05]}")
-
-# -------------------- BATCH VIEW -------------------- #
+# -------------------- DISPLAY IMAGE -------------------- #
+if isinstance(wafer_img, np.ndarray):
+    wafer_display = Image.fromarray((wafer_img * 255).astype(np.uint8)) if wafer_img.max() <= 1.0 else Image.fromarray(wafer_img.astype(np.uint8))
 else:
-    st.header("📊 Batch Wafer View")
-    batch_size = st.sidebar.slider("Images per row", 3, 8, 4)
-    max_images = st.sidebar.slider("Max images to display", 4, len(wafer_images), 20)
+    wafer_display = wafer_img
 
-    for start_idx in range(0, min(len(wafer_images), max_images), batch_size):
-        cols = st.columns(batch_size)
-        for col_idx, (img_name, wafer_img) in enumerate(
-                wafer_images[start_idx:start_idx + batch_size]):
-            col = cols[col_idx]
-            # Display image
-            col.image(wafer_img, use_column_width=True, caption=img_name)
-            # Predict
-            label, probs = cnn_pipeline.predict(wafer_img)
-            # Show top predicted class and probability
-            top_class = max(probs, key=probs.get)
-            top_prob = probs[top_class]
-            col.markdown(f"**Predicted:** {top_class} ({top_prob:.2f})")
+st.image(wafer_display, caption=img_name, width=300)
+
+# -------------------- PREDICTION -------------------- #
+pred_label, pred_probs = pipeline.predict(wafer_img)
+st.subheader("Predicted Failure Type")
+st.write(f"**{pred_label}**")
+
+# Show probabilities
+st.subheader("Prediction Probabilities")
+for k,v in pred_probs.items():
+    st.write(f"{k}: {v:.3f}")
+
+# -------------------- INSIGHTS -------------------- #
+st.subheader("Insights")
+st.write("""
+- The model uses a CNN trained on normalized wafer maps.
+- Probabilities reflect confidence per failure type.
+- Dark areas in the wafer map often correspond to defects detected by the model.
+""")
 
 # -------------------- ABOUT -------------------- #
-st.sidebar.markdown("---")
-st.sidebar.header("About")
-st.sidebar.info(
-    """
-    ChipSleuth – Semiconductor Wafer Defect Detection
-
-    - Upload your wafer images in `.jpg`, `.jpeg`, `.png`, or `.npy` format.
-    - Slider view: Inspect one wafer at a time with full probabilities.
-    - Batch view: Preview multiple wafers with top predictions.
-    - Powered by CNN trained with focal loss, class weights, and augmentation.
-    """
-)
+st.subheader("About")
+st.write("""
+ChipSleuth is a demo for semiconductor wafer defect detection.
+The CNN model classifies wafers into failure types based on image patterns.
+""")
