@@ -169,3 +169,129 @@ It combines computer vision challenges (pattern recognition, noise handling) wit
 
 Understanding the data structure and patterns will be key to designing robust models for defect detection and yield prediction, aligning both with technical depth and business objectives.
 
+# **3. Data Cleaning & Preparation**
+
+**Duplicate check**
+
+Before analyzing or sampling the semiconductor wafer dataset, we ensure that all metadata columns (non-image fields) are clean, scalar, and free from duplicates.
+
+This step helps avoid issues caused by array-like or mixed-type values, which can interfere with grouping, deduplication, and modeling later
+
+**Create a Balanced 300K Sample**
+
+To make the dataset easier to handle and ensure consistent processing speed, we created a 300,000 row sample from 800,000 raw data that preserves the original train/test ratio.
+
+This approach guarantees that both training and testing subsets remain well represented in the sample, avoiding sampling bias.
+
+# **MODELING**
+
+**Data Splitting Insights**
+
+| Task |	Description |	Outcome |
+|:------|:--------|:------------|
+| Train/Test Separation |	Split dataset into training and testing subsets using trainTestLabel |	Ensured proper evaluation without data leakage. |
+| Feature Extraction |	Extracted waferMap arrays for model input |	Shape standardized to (32×32). |
+| Label Encoding |	Converted categorical failureType into numeric codes |	Ready for CNN classification. |
+| Data Check |	Verified size and class distribution	| balanced dataset maintained. |
+
+**Data Normalization**
+
+Wafer map pixel values vary between 0–2 (or similar small integers).
+
+Neural networks converge faster when input values are scaled to a 0–1 range.
+
+| Task |	Description |	Outcome |
+|:-------|:---------|:--------|
+| Pixel Scaling |	Divided all wafer pixel values by the global max value |	All inputs scaled to [0, 1]. |
+| Shape Adjustment |	Added single channel dimension for CNN compatibility |	Final input shape (32, 32, 1). |
+
+Some of the Machine learning models used include :
+
+1. Logististic regression
+   
+   This means that overall, the model gets ~62% of wafers correctly classified, but it performs unevenly across different defect types, some classes are recognized very well, others poorly(Loc, Edge-Loc).
+   
+LogReg learned basic separations — it can distinguish strong, geometric patterns (like Edge-Ring, Donut) quite well.
+
+SMOTE helped minority classes (Donut, Random improved F1), but still not enough for the hardest ones.
+
+The 65% recall on [0 0] means the model sometimes mistakes clean wafers for defective ones, not ideal for production.
+
+Conclusion on LogReg
+Logistic Regression is great as a baseline, but it’s not powerful enough for this dataset, the wafer maps are spatial, not tabular in the classical sense.
+
+2. RandomForest model
+Random Forest achieves 80% accuracy and solid performance on frequent wafer defect types.
+
+However, rare defects like Scratch and Loc remain difficult to classify, suggesting the need for better feature representation and targeted balancing.
+
+3. XGBoost Classifier on SMOTE-Balanced Data
+   XGBoost Accuracy: 0.7938
+
+   Performance Summary
+| Metric |	Logistic Regression |	Random Forest	XGBoost |
+|:-------|:------------|:------------|
+| Accuracy |	0.62 |	0.80 |	0.79 |
+| Macro F1-score |	0.50 |	0.61 |	0.60 |
+|Weighted F1-score |	0.66 |	0.78 |	0.77 |
+
+Random Forest(80% accuracy) slightly outperforms XGBoost overall, while both tree-based models significantly outperform Logistic Regression.
+
+XGBoost provided a balanced and generalizable performance, nearly matching RF.
+
+Logistic Regression serves as a useful baseline but underfits complex wafer structures.
+
+For future improvement, deep learning (CNN) or feature extraction from wafer maps could boost defect classification, especially for underrepresented defect types.
+
+**Transition to CNN**
+
+The CNN model was designed to automatically learn spatial patterns in wafer maps and classify semiconductor wafer defects into multiple categories (e.g., Center, Edge-Loc, Donut, etc.).
+
+Each wafer map was treated as a grayscale image representing the pattern of failed and passed dies.
+
+Now we’ll move from tabular ML → image ML.
+
+The setup we will use (no flattening, no SMOTE, no engineered features).
+
+**Insights:**
+Training was monitored for both accuracy and validation loss across epochs.
+
+The model converged steadily and showed strong generalization to the test data.
+
+**Observations:**
+
+Final CNN accuracy: 62% on a 9-class wafer defect dataset.
+
+CNN demonstrates strong spatial learning capabilities on complex wafer patterns.
+
+**CONCLUSION**
+
+The project successfully developed a wafer defect classification system using Random Forest, XGBoost, and Convolutional Neural Network (CNN) models. After comparing the results, the CNN model gave the best performance because it can learn spatial patterns directly from wafer map images.
+
+The traditional models (Random Forest and XGBoost) performed fairly well but were less accurate for complex defect shapes.
+
+The CNN achieved higher precision, recall, and F1-scores across most defect categories, showing it is more suitable for image-based wafer classification. The use of data augmentation, focal loss, and class balancing improved the model’s ability to detect minority defect types.
+
+**Recommendations**
+
+Use the CNN model as the main model for wafer defect detection.
+
+Keep Random Forest or XGBoost as backup models for cases where image data is unavailable or computational resources are limited.
+
+Deploy the trained CNN model in the Streamlit app to allow easy image uploads and predictions.
+
+Add Grad-CAM visualizations to explain the CNN’s predictions and highlight key defect regions.
+
+Continuously update the dataset with new wafer maps to improve model performance over time.
+
+**Next Steps / Future Work**
+
+Fine-tune the CNN architecture or test transfer learning models such as EfficientNet or MobileNet.
+
+Automate model retraining when new labeled data becomes available.
+
+Deploy the model in a real-time production environment and monitor its performance.
+
+Convert the CNN model to TensorFlow Lite or ONNX for lightweight, on-device inference.
+
+Integrate prediction results with production dashboards for engineers to analyze defect patterns.
