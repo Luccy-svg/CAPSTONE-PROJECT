@@ -20,7 +20,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("ChipSleuth – Wafer Defect Prediction")
+st.title("🚀 ChipSleuth – Wafer Defect Prediction")
 
 # -------------------- LOAD MODEL -------------------- #
 cnn_pipeline = WaferCNNPipeline(
@@ -29,43 +29,40 @@ cnn_pipeline = WaferCNNPipeline(
     class_weights=None
 )
 
-# -------------------- LOAD IMAGES -------------------- #
+# -------------------- LOAD IMAGES FROM FOLDER -------------------- #
 image_folder = "image_data"  # folder with .jpg, .jpeg, .png, .npy
 wafer_images = []
 
 for f in os.listdir(image_folder):
-    file_path = os.path.join(image_folder, f)
     if f.lower().endswith((".jpg", ".jpeg", ".png")):
-        img = Image.open(file_path)
+        img = Image.open(os.path.join(image_folder, f))
         wafer_images.append((f, img))
     elif f.lower().endswith(".npy"):
-        arr = np.load(file_path)
-        # Normalize for display
-        arr_disp = (arr - arr.min()) / (arr.max() - arr.min() + 1e-5) * 255
-        img = Image.fromarray(arr_disp.astype(np.uint8))
+        arr = np.load(os.path.join(image_folder, f))
+        img = Image.fromarray(arr.astype(np.uint8))
         wafer_images.append((f, img))
 
-# -------------------- UPLOAD NEW FILES -------------------- #
+# -------------------- UPLOAD NEW IMAGES -------------------- #
 uploaded_files = st.sidebar.file_uploader(
-    "Upload Wafer Images (.jpg, .jpeg, .png, .npy)",
-    type=["jpg","jpeg","png","npy"],
+    "📥 Upload your wafer images",
+    type=["jpg", "jpeg", "png", "npy"],
     accept_multiple_files=True
 )
-for file in uploaded_files:
-    if file.name.lower().endswith(".npy"):
-        arr = np.load(file)
-        arr_disp = (arr - arr.min()) / (arr.max() - arr.min() + 1e-5) * 255
-        img = Image.fromarray(arr_disp.astype(np.uint8))
+
+for f in uploaded_files:
+    if f.name.lower().endswith(".npy"):
+        arr = np.load(f)
+        img = Image.fromarray(arr.astype(np.uint8))
     else:
-        img = Image.open(file)
-    wafer_images.append((file.name, img))
+        img = Image.open(f)
+    wafer_images.append((f.name, img))
 
 if len(wafer_images) == 0:
-    st.warning("No images found or uploaded!")
+    st.warning(" No images found or uploaded!")
     st.stop()
 
 # -------------------- SIDEBAR -------------------- #
-st.sidebar.title("Controls")
+st.sidebar.title("🎛️ Controls")
 view_mode = st.sidebar.radio("Select View Mode", ["Slider View", "Batch View"])
 
 # -------------------- SLIDER VIEW -------------------- #
@@ -74,58 +71,79 @@ if view_mode == "Slider View":
     idx = st.slider("Select Wafer Index", 0, len(wafer_images)-1, 0)
     img_name, wafer_img = wafer_images[idx]
 
-    # Display properly normalized
-    display_img = wafer_img.copy()
-    st.image(display_img, use_column_width=True, caption=img_name)
+    st.image(wafer_img, use_container_width=True, caption=img_name)
 
     # Prediction
     label, probs = cnn_pipeline.predict(wafer_img)
-    st.subheader("Predicted Failure Type")
+    st.subheader("🔍 Predicted Failure Type")
     st.write(f"**{label}**")
 
-    st.subheader("Prediction Probabilities")
-    for k, v in probs.items():
-        st.write(f"{k}: {v:.2f}")
+    # Top 5 probabilities
+    st.subheader("📊 Top 5 Prediction Probabilities")
+    top5 = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:5]
+    for cls, p in top5:
+        st.write(f"{cls}: {p:.2f}")
 
     # Insights
-    st.subheader("Insights")
-    st.write(f"- Highest probability: {max(probs.values()):.2f}")
-    st.write(f"- Classes with low probability (<0.05): {[k for k,v in probs.items() if v<0.05]}")
+    st.subheader(" Insights")
+    st.write(f"- Highest probability: **{top5[0][1]:.2f} ({top5[0][0]})**")
+    low_prob_classes = [k for k, v in probs.items() if v < 0.05]
+    st.write(f"- Low probability (<0.05) classes: {low_prob_classes}")
 
 # -------------------- BATCH VIEW -------------------- #
 else:
-    st.header("📊 Batch Wafer View")
+    st.header("⚙️ Batch Wafer View")
     batch_size = st.sidebar.slider("Images per row", 3, 8, 4)
     max_images = st.sidebar.slider("Max images to display", 4, len(wafer_images), 20)
 
     for start_idx in range(0, min(len(wafer_images), max_images), batch_size):
         cols = st.columns(batch_size)
         for col_idx, (img_name, wafer_img) in enumerate(
-                wafer_images[start_idx:start_idx + batch_size]):
+            wafer_images[start_idx:start_idx + batch_size]
+        ):
             col = cols[col_idx]
-
-            # Display properly normalized
-            arr = np.array(wafer_img)
-            arr_disp = (arr - arr.min()) / (arr.max() - arr.min() + 1e-5) * 255
-            display_img = Image.fromarray(arr_disp.astype(np.uint8))
-            col.image(display_img, use_column_width=True, caption=img_name)
-
-            # Predict
+            col.image(wafer_img, use_container_width=True, caption=img_name)
             label, probs = cnn_pipeline.predict(wafer_img)
-            top_class = max(probs, key=probs.get)
-            top_prob = probs[top_class]
-            col.markdown(f"**Predicted:** {top_class} ({top_prob:.2f})")
+            top5 = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:5]
+            col.markdown(f"**Predicted:** {top5[0][0]} ({top5[0][1]:.2f})")
+            for cls, p in top5[1:]:
+                col.markdown(f"{cls}: {p:.2f}")
+
+# -------------------- COLLECT ALL PREDICTIONS -------------------- #
+all_results = []
+for img_name, wafer_img in wafer_images:
+    label, probs = cnn_pipeline.predict(wafer_img)
+    top5 = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:5]
+    result = {"Image": img_name}
+    for i, (cls, p) in enumerate(top5, 1):
+        result[f"Top{i}_Class"] = cls
+        result[f"Top{i}_Prob"] = round(p, 4)
+    all_results.append(result)
+
+df_results = pd.DataFrame(all_results)
+
+# -------------------- DOWNLOAD BUTTON -------------------- #
+st.markdown("---")
+st.subheader("📥 Download Predictions")
+csv = df_results.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="🎯 Download CSV",
+    data=csv,
+    file_name="wafer_predictions.csv",
+    mime="text/csv"
+)
 
 # -------------------- ABOUT -------------------- #
 st.sidebar.markdown("---")
-st.sidebar.header("About")
+st.sidebar.header(" About")
 st.sidebar.info(
     """
-    ChipSleuth – Semiconductor Wafer Defect Detection
+    **ChipSleuth – Semiconductor Wafer Defect Detection**
 
-    - Upload your wafer images in `.jpg`, `.jpeg`, `.png`, or `.npy` format.
-    - Slider view: Inspect one wafer at a time with full probabilities and insights.
-    - Batch view: Preview multiple wafers with top predictions.
-    - Powered by CNN trained with focal loss, class weights, and augmentation.
+    - Upload wafer images in `.jpg`, `.jpeg`, `.png`, or `.npy`.
+    - **Slider View:** Inspect single wafer predictions with insights.
+    - **Batch View:** View multiple wafers side-by-side.
+    - **Download CSV:** Export all predictions with top-5 probabilities.
+    - Built on CNN trained with focal loss, class weights, and heavy augmentation.
     """
 )
