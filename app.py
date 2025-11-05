@@ -30,21 +30,27 @@ cnn_pipeline = WaferCNNPipeline(
 )
 
 # -------------------- LOAD IMAGES FROM FOLDER -------------------- #
-image_folder = "image_data"  # local folder (ignored in .gitignore)
-
-# fallback for Streamlit Cloud if local folder missing
-if not os.path.exists(image_folder):
+# Choose image folder
+if os.path.exists("image_data") and len(os.listdir("image_data")) > 0:
+    image_folder = "image_data"
+elif os.path.exists("demo_images") and len(os.listdir("demo_images")) > 0:
     image_folder = "demo_images"
+else:
+    raise FileNotFoundError(" No valid image folder found. Please ensure 'demo_images' or 'image_data' exists.")
 
 wafer_images = []
-for f in os.listdir(image_folder):
-    if f.lower().endswith((".jpg", ".jpeg", ".png")):
-        img = Image.open(os.path.join(image_folder, f))
-        wafer_images.append((f, img))
-    elif f.lower().endswith(".npy"):
-        arr = np.load(os.path.join(image_folder, f))
-        img = Image.fromarray(arr.astype(np.uint8))
-        wafer_images.append((f, img))
+if os.path.exists(image_folder):
+    for f in os.listdir(image_folder):
+        file_path = os.path.join(image_folder, f)
+        if f.lower().endswith((".jpg", ".jpeg", ".png")):
+            img = Image.open(file_path)
+            wafer_images.append((f, img))
+        elif f.lower().endswith(".npy"):
+            arr = np.load(file_path)
+            img = Image.fromarray(arr.astype(np.uint8))
+            wafer_images.append((f, img))
+else:
+    st.warning(f"No image folder found: {image_folder}")
 
 # -------------------- UPLOAD NEW IMAGES -------------------- #
 uploaded_files = st.sidebar.file_uploader(
