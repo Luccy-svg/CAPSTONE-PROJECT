@@ -30,13 +30,21 @@ cnn_pipeline = WaferCNNPipeline(
 )
 
 # -------------------- LOAD IMAGES FROM FOLDER -------------------- #
-# Choose image folder
-if os.path.exists("image_data") and len(os.listdir("image_data")) > 0:
-    image_folder = "image_data"
-elif os.path.exists("demo_images") and len(os.listdir("demo_images")) > 0:
-    image_folder = "demo_images"
-else:
-    raise FileNotFoundError(" No valid image folder found. Please ensure 'demo_images' or 'image_data' exists.")
+# --- Robust image folder setup ---
+possible_folders = ["image_data", "demo_images"]
+image_folder = None
+
+for folder in possible_folders:
+    if os.path.exists(folder) and len(os.listdir(folder)) > 0:
+        image_folder = folder
+        break
+
+if image_folder is None:
+    # stop the app gracefully instead of crashing
+    import streamlit as st
+    st.error(" No valid image folder found. Please ensure 'demo_images' or 'image_data' exists and is not empty.")
+    st.stop()
+
 
 wafer_images = []
 if os.path.exists(image_folder):
