@@ -100,7 +100,7 @@ Common defect types include:
 Common defect types include:
 
 |Percentage |	Pattern Type |	Observation |
-|:__________|:______________|:__________|
+|:-------|:----------|:---------|
 | 78.69 |	0 0 |	Placeholder Category |
 | 18.18 |	None |	Wafer with no defect |
 | 1.17 |	Edge-Ring |	Moderate Frequency |
