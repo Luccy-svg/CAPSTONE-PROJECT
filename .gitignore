@@ -211,4 +211,6 @@ random_forest_improved.pkl
 cnn_model.h5*.keras
 *
 generate_demo_data.py
-demo_data/
+xgboost_y_test_pred.pkl
+y_test.pkl
+image_data/
