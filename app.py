@@ -14,9 +14,9 @@ import pandas as pd
 from cnn_pipeline import WaferCNNPipeline 
 
 
-# ==========================================================
+
 # STREAMLIT CONFIG
-# ==========================================================
+
 st.set_page_config(
     page_title="ChipSleuth Wafer Defect Dashboard",
     page_icon="🕵️‍♀️",
@@ -24,9 +24,9 @@ st.set_page_config(
 )
 st.title("🚀 ChipSleuth – Wafer Defect Prediction")
 
-# ==========================================================
+
 # LOAD MODEL
-# ==========================================================
+
 cnn_pipeline = WaferCNNPipeline(
     model_path="cnn_model.keras",
     label_encoder_path="label_encoder.pkl",
@@ -34,14 +34,14 @@ cnn_pipeline = WaferCNNPipeline(
 )
 
 if cnn_pipeline is None:
-    st.error("❌ CNN model failed to load! Please check cnn_model.keras and label_encoder.pkl paths.")
+    st.error("CNN model failed to load! Please check cnn_model.keras and label_encoder.pkl paths.")
     st.stop()
 else:
-    st.sidebar.success("✅ CNN model loaded successfully.")
+    st.sidebar.success("CNN model loaded successfully.")
 
-# ==========================================================
+
 # LOAD IMAGES FROM FOLDERS
-# ==========================================================
+
 if os.path.exists("image_data") and len(os.listdir("image_data")) > 0:
     image_folder = "image_data"
 elif os.path.exists("demo_images") and len(os.listdir("demo_images")) > 0:
@@ -65,14 +65,14 @@ if image_folder and os.path.exists(image_folder):
                 img = Image.fromarray(arr.astype(np.uint8))
                 wafer_images.append((f, img, img))
         except Exception as e:
-            st.warning(f"⚠️ Could not load {f}: {e}")
+            st.warning(f" Could not load {f}: {e}")
 else:
     st.warning(f"No image folder found: {image_folder}")
 
-# ==========================================================
+
 # UPLOAD NEW IMAGES
-# ==========================================================
-st.sidebar.markdown("### 📤 Upload New Wafer Images")
+
+st.sidebar.markdown("### Upload New Wafer Images")
 uploaded_files = st.sidebar.file_uploader(
     "Upload your wafer images",
     type=["jpg", "jpeg", "png", "npy"],
@@ -92,12 +92,12 @@ for f in uploaded_files:
             gray_img = color_img.convert("L")
             wafer_images.append((f.name, color_img, gray_img))
     except Exception as e:
-        st.sidebar.error(f"❌ Failed to read {f.name}: {e}")
+        st.sidebar.error(f"Failed to read {f.name}: {e}")
 
 # Sidebar preview of uploaded images
 if uploaded_files:
-    st.sidebar.success(f"✅ {len(uploaded_files)} file(s) uploaded successfully!")
-    st.sidebar.markdown("### 👁️ Uploaded Previews")
+    st.sidebar.success(f"{len(uploaded_files)} file(s) uploaded successfully!")
+    st.sidebar.markdown("### Uploaded Previews")
     cols = st.sidebar.columns(min(3, len(uploaded_files)))
     for i, (name, color_img, _) in enumerate(wafer_images[-len(uploaded_files):]):
         cols[i % len(cols)].image(color_img, caption=name, use_container_width=True)
@@ -109,15 +109,15 @@ if len(wafer_images) == 0:
 
 st.sidebar.info(f"🖼️ Total images loaded: **{len(wafer_images)}**")
 
-# ==========================================================
+
 # SIDEBAR CONTROLS
-# ==========================================================
+
 st.sidebar.title("🔧 Controls")
 view_mode = st.sidebar.radio("Select View Mode", ["Slider View", "Batch View"])
 
-# ==========================================================
+
 # SLIDER VIEW
-# ==========================================================
+
 if view_mode == "Slider View":
     st.header("🖼️ Single Wafer View")
 
@@ -139,14 +139,14 @@ if view_mode == "Slider View":
         st.write(f"{cls}: {p:.2f}")
 
     # Insights
-    st.subheader("🧠 Insights")
+    st.subheader("Insights")
     st.write(f"- Highest probability: **{top5[0][1]:.2f} ({top5[0][0]})**")
     low_prob_classes = [k for k, v in probs.items() if v < 0.05]
     st.write(f"- Low probability (<0.05) classes: {low_prob_classes}")
 
-# ==========================================================
+
 # BATCH VIEW
-# ==========================================================
+
 else:
     st.header("⚙️ Batch Wafer View")
     batch_size = st.sidebar.slider("Images per row", 3, 8, 4)
@@ -165,9 +165,9 @@ else:
             for cls, p in top5[1:]:
                 col.markdown(f"{cls}: {p:.2f}")
 
-# ==========================================================
+
 # COLLECT ALL PREDICTIONS
-# ==========================================================
+
 all_results = []
 for img_name, _, gray_img in wafer_images:
     label, probs = cnn_pipeline.predict(gray_img)
@@ -180,9 +180,9 @@ for img_name, _, gray_img in wafer_images:
 
 df_results = pd.DataFrame(all_results)
 
-# ==========================================================
+
 # DOWNLOAD RESULTS
-# ==========================================================
+
 st.markdown("---")
 st.subheader("Download Predictions")
 csv = df_results.to_csv(index=False).encode("utf-8")
@@ -193,9 +193,9 @@ st.download_button(
     mime="text/csv"
 )
 
-# ==========================================================
+
 # ABOUT SECTION
-# ==========================================================
+
 st.sidebar.markdown("---")
 st.sidebar.header(" About")
 st.sidebar.info(
